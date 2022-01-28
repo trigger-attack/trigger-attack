@@ -1,4 +1,4 @@
-from .. import trojai_tools
+from . import data_tools
 import os
 from submission_constants import metadata_tokenizer_to_tokenizer_filename
 import shutil
@@ -13,8 +13,8 @@ def write_features_for_all_models(args):
 
 def _get_commands_to_run(args):
     all_models_dirpath = _get_all_models_dirpath(args.configure_models_dirpath)
-    all_tokenizers_dirpaths = trojai_tools._get_tokenizers_dirpath_from_round_training_dataset_dirpath(args.configure_models_dirpath)
-    metadata = trojai_tools.load_metadata_from_round_training_dataset_dirpath(args.configure_models_dirpath)
+    all_tokenizers_dirpaths = data_tools.get_tokenizers_dirpath(args.configure_models_dirpath)
+    metadata = data_tools.load_metadata(args.configure_models_dirpath)
     
     extracted_features_folder = _get_extracted_features_folder(args.scratch_dirpath)
     _prepare_extracted_features_folder(extracted_features_folder)
@@ -54,7 +54,7 @@ def _delete_folder_if_possible(folder):
         shutil.rmtree(folder)
 
 def _get_all_models_dirpath(configure_models_dirpath):
-    all_models_dirpath = trojai_tools.get_model_filepath_from_round_training_dataset_dirpath(configure_models_dirpath)
+    all_models_dirpath = data_tools._get_models_dirpath(configure_models_dirpath)
     all_model_filepaths = []
     for model_dirpath in os.listdir(all_models_dirpath):
         all_model_filepaths.append(os.path.join(all_models_dirpath, model_dirpath))

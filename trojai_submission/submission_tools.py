@@ -6,6 +6,7 @@ from itertools import product
 import datasets
 import torch
 from submission_constants import args_defaults
+from trigger_attack.trigger_init_fn import trigger_init_names_to_fn
 
 
 def get_args():    
@@ -30,6 +31,10 @@ def get_args():
     parser.add_argument('--parameter1', type=int, help='An example tunable parameter.')
     parser.add_argument('--parameter2', type=float, help='An example tunable parameter.')
     parser.add_argument('--parameter3', type=str, help='An example tunable parameter.')
+
+    # trigger_dataset args
+    parser.add_argument('--trigger_length', type=int, detault=8, help='An example tunable parameter.')
+    parser.add_argument('--trigger_init_fn', type=str, default='embed_ch', choices=trigger_init_names_to_fn.keys(), help='Trigger Initialization Functions')
 
     parser.add_argument('--is_submission', dest='is_submission', default=True, action='store_true',  help='Flag to determine if this is a submission to the NIST server',  )
     parser.add_argument('--gpu', nargs='+', required=False,          type=int, help='Which GPU', )

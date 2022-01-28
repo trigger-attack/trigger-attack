@@ -2,13 +2,24 @@ import pandas as pd
 import torch
 import submission_tools
 import data_tools
-from trigger_attack.trigger_inversion_models import TriggerInversionModels
+from trigger_attack.trigger_models import TriggerModels
+from trigger_attack.trigger_dataset import TriggerDataset
+from torch.utils.data import DataLoader
 
 def extract_trojan_features(args):
     config = data_tools.load_config(args.model_filepath)
     clean_model_filepaths = data_tools.get_clean_model_filepaths(config, args.round_training_dataset_dirpath)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    models = TriggerInversionModels(args.suspicious_model_filepath, clean_model_filepaths, args.tokenizer_filepath, device=device)
+    models = TriggerModels(args.model_filepath, clean_model_filepaths, args.tokenizer_filepath, device=device)
+    
+    original_dataset = data_tools.load_examples(args.model_filepath, args.scratch_dirpath)
+    task = data_tools.get_taskname(args.round_training_dataset_dirpath, config)
+    trigger_dataset = TriggerDataset(original_dataset, models, args.trigger_length, args.trigger_init_fn, 
+                                            args.trigger_loc, task, scratch_dirname=args.scratch_dirpath)
+    dataloader = DataLoader(trigger_dataset, batch_size=20, num_workers=4, shuffle=True, pin_memory=True)
+    
+
+    print('break')
 
 def reconfigure_trojan_classifier(args): 
     submission_tools.write_features_for_all_models(args)
