@@ -25,8 +25,6 @@ class TorchTriggeredDataset(Dataset):
         self.attention_mask = huggingface_dataset['attention_mask'].clone().detach().clone().bool()
         self.token_type_ids = huggingface_dataset['token_type_ids'].clone().detach().clone().long()
 
-        self.trigger_mask = huggingface_dataset['trigger_mask'].clone().detach().clone().bool()
-
         self.baseline_probabilities = huggingface_dataset['baseline_probabilities'].detach().clone().float()
 
     def __len__(self):
@@ -37,7 +35,6 @@ class TorchTriggeredDataset(Dataset):
             'input_ids': self.input_ids[idx],
             'attention_mask': self.attention_mask[idx],
             'token_type_ids': self.token_type_ids[idx],
-            'trigger_mask': self.trigger_mask[idx],
             'baseline_probabilities': self.baseline_probabilities[idx],
         }
         return sample

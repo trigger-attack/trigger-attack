@@ -267,19 +267,15 @@ class QATriggeredDataset(tools.TorchTriggeredDataset):
 
     def __init__(self, huggingface_dataset):
         super().__init__(huggingface_dataset)
+        self.trigger_mask = huggingface_dataset['trigger_mask'].clone().detach().clone().bool()
         self.valid_mask = huggingface_dataset['valid_mask'].clone().detach().clone().bool()
         self.answer_mask = huggingface_dataset['answer_mask'].clone().detach().clone().bool()
 
     def __getitem__(self, idx):
-        sample = {
-            'input_ids': self.input_ids[idx],
-            'attention_mask': self.attention_mask[idx],
-            'token_type_ids': self.token_type_ids[idx],
-            'trigger_mask': self.trigger_mask[idx],
-            'valid_mask': self.valid_mask[idx],
-            'answer_mask': self.answer_mask[idx],
-            'baseline_probabilities': self.baseline_probabilities[idx],
-        }
+        sample = super().__getitem__(idx)
+        sample['trigger_mask'] = self.trigger_mask[idx],
+        sample['valid_mask'] = self.valid_mask[idx]
+        sample['answer_mask'] = self.answer_mask[idx]
         return sample
 
 
