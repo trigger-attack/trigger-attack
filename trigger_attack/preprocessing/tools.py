@@ -26,6 +26,7 @@ class TorchTriggeredDataset(Dataset):
         self.token_type_ids = huggingface_dataset['token_type_ids'].clone().detach().clone().long()
 
         self.baseline_probabilities = huggingface_dataset['baseline_probabilities'].detach().clone().float()
+        self.trigger_mask = huggingface_dataset['trigger_mask'].detach().clone().bool()
 
     def __len__(self):
         return len(self.input_ids)
@@ -36,6 +37,7 @@ class TorchTriggeredDataset(Dataset):
             'attention_mask': self.attention_mask[idx],
             'token_type_ids': self.token_type_ids[idx],
             'baseline_probabilities': self.baseline_probabilities[idx],
+            'trigger_mask': self.trigger_mask[idx],
         }
         return sample
 
@@ -43,7 +45,9 @@ class TorchTriggeredDataset(Dataset):
         _insert_new_trigger_in_input_ids(self.input_ids, self.trigger_mask, new_trigger)
 
 def _insert_new_trigger_in_input_ids(input_ids, trigger_mask, new_trigger):
-    new_trigger = torch.tensor(new_trigger, device=torch.device('cpu'))
+    if not isinstance(new_trigger, torch.Tensor):
+        new_trigger = torch.tensor(new_trigger, device=torch.device('cpu'))
+    new_trigger = new_trigger.to(input_ids.device)
     target_size = (input_ids[trigger_mask]).shape[0]
     num_copies = target_size // len(new_trigger)
     input_ids[trigger_mask] = new_trigger.repeat(num_copies)

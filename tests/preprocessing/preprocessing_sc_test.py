@@ -1,10 +1,11 @@
 import unittest
 import os
-from cv2 import threshold
 import torch
 from trigger_attack.trigger_models import TriggerModels
 from trigger_attack.preprocessing import sc, tools
 from trojai_submission import data_tools
+import warnings
+warnings.filterwarnings("ignore")
 
 
 class TestSCPreprocessing(unittest.TestCase):
@@ -14,14 +15,14 @@ class TestSCPreprocessing(unittest.TestCase):
         self.models = self._load_models()
 
     def _load_dataset(self):
-        model_filepath = self._prepend_current_script_path('data/round9_sample_dataset/models/id-00000014/model.pt')
+        model_filepath = self._prepend_current_script_path('../data/round9_sample_dataset/models/id-00000014/model.pt')
         scratch_filepath = '.tmp'
         return data_tools.load_examples(model_filepath, scratch_filepath)
 
     def _load_models(self):
-        suspicious_model_filepath = self._prepend_current_script_path('data/round9_sample_dataset/models/id-00000014/model.pt')
-        clean_model_filepaths = [self._prepend_current_script_path('data/round9_sample_dataset/models/id-00000002/model.pt')]
-        tokenizer_filepath = self._prepend_current_script_path('data/round9_sample_dataset/tokenizers/roberta-base.pt')
+        suspicious_model_filepath = self._prepend_current_script_path('../data/round9_sample_dataset/models/id-00000014/model.pt')
+        clean_model_filepaths = [self._prepend_current_script_path('../data/round9_sample_dataset/models/id-00000002/model.pt')]
+        tokenizer_filepath = self._prepend_current_script_path('../data/round9_sample_dataset/tokenizers/roberta-base.pt')
         return TriggerModels(suspicious_model_filepath, clean_model_filepaths, tokenizer_filepath, device=torch.device('cuda'))
 
     @staticmethod
@@ -51,6 +52,14 @@ class TestSCPreprocessing(unittest.TestCase):
         dataset = tools._select_unique_inputs(dataset)
         expected_length = 56
         self.assertTrue(len(dataset) == expected_length)
+
+    def test_select_inputs_with_source_class(self):
+        dataset = sc._tokenize_for_sc(self.dataset, self.models.tokenizer)
+        dataset = tools._select_unique_inputs(dataset)
+        trigger_source_label = 0
+        dataset = sc._select_inputs_with_source_class(dataset, trigger_source_label)
+        expected = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        self.assertTrue(dataset['label']==expected)
 
     def test_start_initialize_dummy_trigger(self):
         dataset = sc._tokenize_for_sc(self.dataset, self.models.tokenizer)
@@ -93,7 +102,7 @@ class TestSCPreprocessing(unittest.TestCase):
         dummy = self.models.tokenizer.pad_token_id
         dataset = sc._initialize_dummy_trigger(dataset, self.models.tokenizer, trigger_length, trigger_loc, dummy=dummy)
         agg_function = torch.mean
-        dataset = sc._add_baseline_probabilities(dataset, self.models, agg_function)
+        dataset = sc._add_baseline_probabilities(dataset, self.models)
         expected = torch.tensor([0.9962, 0.0038])
         actual = dataset['baseline_probabilities'][0].to('cpu')
         self.assertTrue(torch.allclose(expected, actual, atol=1e-02))
@@ -106,8 +115,8 @@ class TestSCPreprocessing(unittest.TestCase):
         dummy = self.models.tokenizer.pad_token_id
         dataset = sc._initialize_dummy_trigger(dataset, self.models.tokenizer, trigger_length, trigger_loc, dummy=dummy)
         agg_function = torch.mean
-        dataset = sc._add_baseline_probabilities(dataset, self.models, agg_function)
-        dataset = tools.TorchTriggeredDataset(dataset)
+        dataset = sc._add_baseline_probabilities(dataset, self.models)
+        dataset = sc.SCTriggeredDataset(dataset)
         self.assertTrue(True)
 
     def tearDown(self):

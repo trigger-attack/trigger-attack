@@ -18,14 +18,14 @@ class TestQAPreprocessing(unittest.TestCase):
         set_verbosity_error()
     
     def _load_dataset(self):
-        model_filepath = self._prepend_current_script_path('data/round8_sample_dataset/models/id-00000000/model.pt')
+        model_filepath = self._prepend_current_script_path('../data/round8_sample_dataset/models/id-00000000/model.pt')
         scratch_filepath = '.tmp'
         return data_tools.load_examples(model_filepath, scratch_filepath)
 
     def _load_models(self):
-        suspicious_model_filepath = self._prepend_current_script_path('data/round8_sample_dataset/models/id-00000000/model.pt')
-        clean_model_filepaths = [self._prepend_current_script_path('data/round8_sample_dataset/models/id-00000018/model.pt')]
-        tokenizer_filepath = self._prepend_current_script_path('data/round8_sample_dataset/tokenizers/tokenizer-roberta-base.pt')
+        suspicious_model_filepath = self._prepend_current_script_path('../data/round8_sample_dataset/models/id-00000000/model.pt')
+        clean_model_filepaths = [self._prepend_current_script_path('../data/round8_sample_dataset/models/id-00000018/model.pt')]
+        tokenizer_filepath = self._prepend_current_script_path('../data/round8_sample_dataset/tokenizers/tokenizer-roberta-base.pt')
         return TriggerModels(suspicious_model_filepath, clean_model_filepaths, tokenizer_filepath, device=torch.device('cuda'))
     
     @staticmethod
@@ -103,7 +103,7 @@ class TestQAPreprocessing(unittest.TestCase):
         trigger_loc = 'both'
         dataset = qa._initialize_dummy_trigger(dataset, self.models.tokenizer, trigger_length, trigger_loc)
         agg_function = torch.mean
-        dataset = qa._add_baseline_probabilities(dataset, self.models, agg_function)
+        dataset = qa._add_baseline_probabilities(dataset, self.models)
         answer = dataset['baseline_probabilities'].argmax(dim=1)
         expected_answer = torch.tensor([ 37,  45,   0,  73,   0,  27,  48, 103, 223,  46,  32])
         self.assertTrue(torch.equal(answer, expected_answer))
@@ -117,7 +117,7 @@ class TestQAPreprocessing(unittest.TestCase):
         trigger_loc = 'both'
         dataset = qa._initialize_dummy_trigger(dataset, self.models.tokenizer, trigger_length, trigger_loc)
         agg_function = torch.mean
-        dataset = qa._add_baseline_probabilities(dataset, self.models, agg_function)
+        dataset = qa._add_baseline_probabilities(dataset, self.models)
         dataset = qa.QATriggeredDataset(dataset)
         expected_length = 11
         self.assertTrue(len(dataset) == expected_length)
@@ -131,7 +131,7 @@ class TestQAPreprocessing(unittest.TestCase):
         trigger_loc = 'both'
         dataset = qa._initialize_dummy_trigger(dataset, self.models.tokenizer, trigger_length, trigger_loc)
         agg_function = torch.mean
-        dataset = qa._add_baseline_probabilities(dataset, self.models, agg_function)
+        dataset = qa._add_baseline_probabilities(dataset, self.models)
         dataset = qa.QATriggeredDataset(dataset)
         new_trigger = torch.tensor(list(range(trigger_length)))
         dataset.update_trigger(new_trigger)
