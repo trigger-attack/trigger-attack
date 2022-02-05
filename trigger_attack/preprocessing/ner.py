@@ -61,6 +61,16 @@ def _tokenize_for_ner(dataset, tokenizer):
 
 
 def _initialize_dummy_trigger(dataset, tokenizer, trigger_length, trigger_source_labels, dummy=None):
+    '''
+    Insert the a trigger length tensor at the trigger source label token with:
+        input_ids: insert dummy
+        attention_mask: insert ones
+        token_type_ids: insert zeroes
+        label: insert -100's
+    trigger_source_loc is the location of the token that the trigger is targetting
+    attention_mask without_trigger is an optional field that has zeroes wherever the trigger is present
+    trigger_mask is zeroes anywhere and ones wherever the trigger is present
+    '''
     assert trigger_source_labels is not None, "trigger source labels needs to be specified"
     if dummy is None:
         dummy = tokenizer.pad_token_id
@@ -75,9 +85,8 @@ def _initialize_dummy_trigger(dataset, tokenizer, trigger_length, trigger_source
             'trigger_mask':[]
         }
         '''
-        Your code here
+        YOUR CODE HERE
         '''
-
         return result
 
     dataset = dataset.map(
@@ -92,19 +101,20 @@ def _initialize_dummy_trigger(dataset, tokenizer, trigger_length, trigger_source
 
 
 def _add_baseline_probabilities(dataset, models):
+    '''
+    returns the likelyhoods over classes of the token that the trigger is targetting
+    '''
     def _add_baseline_probabilities_helper(batch):
         with torch.no_grad():
-            '''
-            YOUR CODE HERE
-            '''
+            return NotImplementedError
     dataset = dataset.map(_add_baseline_probabilities_helper, batched=True, num_proc=1, keep_in_memory=True, batch_size=20)
     return dataset
 
 def _get_probabilitites(logits, trigger_source_loc):
-    '''
-    YOUR CODE HERE
-    '''
-    return NotImplementedError
+    source_loc_logits = logits[torch.arange(len(logits)), trigger_source_loc]
+    scores = torch.exp(source_loc_logits)
+    probs = scores/torch.sum(scores, dim=1, keepdim=True)
+    return probs
 
 class NERTriggeredDataset(tools.TorchTriggeredDataset):
 

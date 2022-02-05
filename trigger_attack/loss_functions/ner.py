@@ -20,12 +20,10 @@ def calculate_ner_loss(all_logits, batch, trigger_target_labels:list, clean_agg_
 def calculate_ner_suspicious_loss(all_logits, trigger_target_labels, batch):
     '''
     given a set of logits [negative, positive]
-    compute the probability distribution over classes 
-        using the mean log likelihood that the answer 
-        is the trigger target label
-    '''
-    '''
-    YOUR CODE HERE
+    compute the probability distribution over classes
+        using the mean negative log likelihood that
+        the suspicious model prediction of the trigger target is equal to 
+        any of the trigger target labels
     '''
     return NotImplementedError
 
@@ -33,11 +31,9 @@ def calculate_ner_clean_loss(all_logits, batch, trigger_target_labels, clean_agg
     '''
     given a set of logits [negative, positive]
     compute the probability distribution over classes
-        as the mean negative log likelihood the the
-        final prediction is *not* in the trigger target labels
-    '''
-    '''
-    YOUR CODE HERE
+        using the mean negative log likelihood that
+        the clean model prediction of the trigger target is NOT equal to 
+        any of the trigger target labels
     '''
     return NotImplementedError
 
