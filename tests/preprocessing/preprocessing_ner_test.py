@@ -1,6 +1,5 @@
 import unittest
 import os
-from cv2 import threshold
 import torch
 from trigger_attack.trigger_models import TriggerModels
 from trigger_attack.preprocessing import ner, tools
