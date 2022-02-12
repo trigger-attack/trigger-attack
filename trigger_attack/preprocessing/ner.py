@@ -1,3 +1,4 @@
+from matplotlib import tri
 import torch
 from trigger_attack.preprocessing import tools
 from copy import deepcopy
@@ -74,6 +75,8 @@ def _initialize_dummy_trigger(dataset, tokenizer, trigger_length, trigger_source
     assert trigger_source_labels is not None, "trigger source labels needs to be specified"
     if dummy is None:
         dummy = tokenizer.pad_token_id
+    def insert_into_var(insertion_ixs, base, insert): ##TODO dim
+        return base[:insertion_ixs] + insert + base[insertion_ixs:]
     def insert_trigger_helper(examples):
         result = {
             'input_ids':[],
@@ -87,26 +90,69 @@ def _initialize_dummy_trigger(dataset, tokenizer, trigger_length, trigger_source
         '''
         YOUR CODE HERE
         '''
+        for i in range(len(examples['input_ids'])):
+            example = {}
+            locations = []
+            for key in examples.keys():
+                example[key] = examples[key][i]
+            labels = np.array(example['label'])
+            start = np.argwhere(np.isin(labels, trigger_source_labels))
+            mask = []
+            input_ids, attention_mask, attention_mask_without_trigger, token_type_ids, label = example['input_ids'], example['attention_mask'], example['attention_mask'], example['token_type_ids'], example['label']
+            if start.shape[0] == 0:
+                continue
+            start = list(start[0])
+            for j, ix in enumerate(start):
+                target_cur_idx = (j+1) * trigger_length + ix
+                target_cur_len = j * trigger_length
+                input_ids = insert_into_var(start[j]+target_cur_len, input_ids, [dummy]* trigger_length)
+                attention_mask = insert_into_var(start[j]+target_cur_len, attention_mask, [1] * trigger_length)
+                attention_mask_without_trigger = insert_into_var(start[j]+target_cur_len, attention_mask_without_trigger, [0] * trigger_length)
+                token_type_ids = insert_into_var(start[j]+target_cur_len, token_type_ids, [0] * trigger_length)
+                label = insert_into_var(start[j]+target_cur_len, label, [-100] * trigger_length)
+                locations.append(target_cur_idx) 
+                if j == 0:
+                    mask.extend([0] * ix)
+                else:
+                    mask.extend([0] * (ix - start[j-1])) 
+                mask.extend([1]*trigger_length)
+            mask.extend([0] * (len(example['input_ids']) + trigger_length - len(mask)))    
+            result['input_ids'].append(input_ids)
+            result['attention_mask'].append(attention_mask)
+            result['attention_mask_without_trigger'].append(attention_mask_without_trigger)
+            result['token_type_ids'].append(token_type_ids)
+            result['label'].append(label)
+            result['trigger_source_loc'].append(locations)
+            result['trigger_mask'].append(mask)
+        
         return result
 
     dataset = dataset.map(
         insert_trigger_helper,
         batched=True,
-        num_proc=2,
+        num_proc=1,
         remove_columns=dataset.column_names,
         keep_in_memory=True)
     dataset.set_format('torch', columns=dataset.column_names)
-
     return dataset
 
 
 def _add_baseline_probabilities(dataset, models):
     '''
-    returns the likelyhoods over classes of the token that the trigger is targetting
+    returns the likelihoods over classes of the token that the trigger is targetting
     '''
     def _add_baseline_probabilities_helper(batch):
         with torch.no_grad():
-            return NotImplementedError
+            modified_batch = deepcopy(batch)
+            modified_batch['attention_mask'] = modified_batch['attention_mask_without_trigger']
+            all_logits = models(modified_batch)
+            probabilities = [_get_probabilitites(all_logits['suspicious'].logits, batch['trigger_source_loc'].squeeze())]
+            for clean_logits in all_logits['clean']:
+                probabilities += [_get_probabilitites(clean_logits.logits, batch['trigger_source_loc'].squeeze())]
+            probabilities = torch.stack(probabilities)
+            batch['baseline_probabilities'] = models.clean_model_aggregator_fn(probabilities, dim=0)
+            batch = {k: v.detach().cpu().numpy() for k, v in batch.items()}
+            return batch
     dataset = dataset.map(_add_baseline_probabilities_helper, batched=True, num_proc=1, keep_in_memory=True, batch_size=20)
     return dataset
 
