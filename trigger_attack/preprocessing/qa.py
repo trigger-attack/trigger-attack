@@ -4,12 +4,13 @@ from trigger_attack.preprocessing import tools
 from datasets.utils.logging import set_verbosity_error
 set_verbosity_error()
 
-def qa_dataset_preprocessing(dataset, models, trigger_length, trigger_loc, agg_function=torch.mean):
-    dataset = _tokenize_for_qa(dataset, models.tokenizer)
+def qa_dataset_preprocessing(trigger_dataset, models):
+
+    dataset = _tokenize_for_qa(trigger_dataset.original_dataset, models.tokenizer)
     dataset = _select_qa_examples_with_an_answer_in_context(dataset, models.tokenizer)
     dataset = tools._select_unique_inputs(dataset)
-    dataset = _initialize_dummy_trigger(dataset, models.tokenizer, trigger_length, trigger_loc)
-    dataset = _add_baseline_probabilities(dataset, models, agg_function)
+    dataset = _initialize_dummy_trigger(dataset, models.tokenizer, trigger_dataset.trigger_length, trigger_dataset.trigger_loc)
+    dataset = _add_baseline_probabilities(dataset, models)
     dataset = QATriggeredDataset(dataset)
 
     return dataset
@@ -166,12 +167,15 @@ def _initialize_dummy_trigger(dataset, tokenizer, trigger_length, trigger_loc, d
         dataset_instance = {var_name:None for var_name in var_list}
 
         def get_insertion_ix(insertion_location, start_end_ix):
+            valid_insertion_locations = ['start', 'end']
+            assert insertion_location in valid_insertion_locations, \
+                f'please enter either {valid_insertion_locations} as an insertion_location'
             if insertion_location == 'start':
-                return start_end_ix[0]
+                insertion_ix = start_end_ix[0]
             elif insertion_location == 'end':
-                return start_end_ix[1]+1
-            else:
-                print('please enter either "start" or "end" as an insertion_location')
+                insertion_ix = start_end_ix[1]+1
+            return insertion_ix
+                
         
         q_idx = get_insertion_ix(trigger_insertion_locations[0], q_pos)
         c_idx = get_insertion_ix(trigger_insertion_locations[1], c_pos)
@@ -238,7 +242,7 @@ def _initialize_dummy_trigger(dataset, tokenizer, trigger_length, trigger_loc, d
     return dataset
 
 
-def _add_baseline_probabilities(dataset, models, agg_function):
+def _add_baseline_probabilities(dataset, models):
     def _add_baseline_probabilities_helper(batch):
         with torch.no_grad():
             modified_batch = deepcopy(batch)
@@ -248,7 +252,7 @@ def _add_baseline_probabilities(dataset, models, agg_function):
             for clean_logits in all_logits['clean']:
                 probabilities += [_get_probabilitites(clean_logits, batch)]
             probabilities = torch.stack(probabilities)
-            batch['baseline_probabilities'] = agg_function(probabilities, dim=0)
+            batch['baseline_probabilities'] = models.clean_model_aggregator_fn(probabilities, dim=0)
             batch = {k: v.detach().cpu().numpy() for k, v in batch.items()}
             return batch
     dataset = dataset.map(_add_baseline_probabilities_helper, batched=True, num_proc=1, keep_in_memory=True, batch_size=20)
@@ -267,13 +271,11 @@ class QATriggeredDataset(tools.TorchTriggeredDataset):
 
     def __init__(self, huggingface_dataset):
         super().__init__(huggingface_dataset)
-        self.trigger_mask = huggingface_dataset['trigger_mask'].clone().detach().clone().bool()
         self.valid_mask = huggingface_dataset['valid_mask'].clone().detach().clone().bool()
         self.answer_mask = huggingface_dataset['answer_mask'].clone().detach().clone().bool()
 
     def __getitem__(self, idx):
         sample = super().__getitem__(idx)
-        sample['trigger_mask'] = self.trigger_mask[idx],
         sample['valid_mask'] = self.valid_mask[idx]
         sample['answer_mask'] = self.answer_mask[idx]
         return sample

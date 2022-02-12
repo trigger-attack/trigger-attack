@@ -2,11 +2,11 @@ import torch
 from random import randint, sample, choices
 
 
-def make_random_new_trigger(triggered_dataset, **kwargs):
+def make_random_new_trigger(triggered_dataset, _):
     rand_list = [randint(0,len(triggered_dataset.tokenizer)-1) for _ in range(triggered_dataset.trigger_length)]
     return torch.tensor(rand_list).to(triggered_dataset.device)
 
-def make_pad_trigger(triggered_dataset, **kwargs):
+def make_pad_trigger(triggered_dataset, _):
     pad_id = triggered_dataset.tokenizer.pad_token_id
     pad_tensor = torch.tensor([pad_id]*triggered_dataset.trigger_length)
     return pad_tensor.to(triggered_dataset.device)

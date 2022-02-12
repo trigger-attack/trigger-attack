@@ -15,14 +15,22 @@ def check_word(tup):
 
 class TriggerModels(torch.nn.Module):
 
-    def __init__(self, suspicious_model_filepath, clean_model_filepaths, tokenizer_filepath, device=torch.device('cpu')):
+    def __init__(self, 
+                suspicious_model_filepath, 
+                clean_model_filepaths, 
+                tokenizer_filepath, 
+                clean_model_aggregator_fn=torch.mean, 
+                device=torch.device('cpu')):
         super(TriggerModels, self).__init__()
-        self.suspicious_model = None
+        self.suspicious_model = None        
         self.clean_models = []
         self.tokenizer = None
         self.device = device
         self.most_changed_singletoken_words = None
         self.most_changed_multitoken_words = None
+        self.clean_model_aggregator_fn = clean_model_aggregator_fn
+        self.suspicious_grads = []
+        self.clean_grads = []
 
         self._load_suspicious_model_in_eval_mode(suspicious_model_filepath)
         self._load_all_clean_models_in_eval_mode(clean_model_filepaths)
@@ -53,7 +61,7 @@ class TriggerModels(torch.nn.Module):
             self.__add_hooks_to_single_model(clean_model, is_clean=True)
 
     def __add_hooks_to_single_model(self, model, is_clean):
-        module = self.__find_word_embedding_module(model)
+        module = self._find_word_embedding_module(model)
         module.weight.requires_grad = True
         if is_clean:
             def __extract_clean_grad_hook(module, grad_in, grad_out):
@@ -61,16 +69,8 @@ class TriggerModels(torch.nn.Module):
             module.register_backward_hook(__extract_clean_grad_hook)
         else:
             def __extract_grad_hook(module, grad_in, grad_out):
-                self.eval_grads.append(grad_out[0])
+                self.suspicious_grads.append(grad_out[0])
             module.register_backward_hook(__extract_grad_hook)
-
-    @staticmethod
-    def __find_word_embedding_module(classification_model):
-        word_embedding_tuple = [(name, module) 
-            for name, module in classification_model.named_modules() 
-            if 'embeddings.word_embeddings' in name]
-        assert len(word_embedding_tuple) == 1
-        return word_embedding_tuple[0][1]   
 
 
     def _get_forward_input_list(self):
@@ -181,3 +181,12 @@ class TriggerModels(torch.nn.Module):
             return new_dict
         else:
             return batch
+
+    def clear_model_gradients(self):
+        self.suspicious_model.zero_grad()
+        for clean_model in self.clean_models:
+            clean_model.zero_grad()
+
+    def clear_word_embedding_gradients(self):
+        self.suspicious_grads = []
+        self.clean_grads = []

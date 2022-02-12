@@ -25,11 +25,11 @@ class TestTriggerDataset(unittest.TestCase):
         trigger_loc = 'both'
         task = 'qa'
         self.trigger_dataset = TriggerDataset(dataset, models, trigger_length, trigger_init_fn, trigger_loc, task)
-        print("Here")
 
     def test_init(self):
-        print("Here")
-        print("Here")
+        '''
+        '''
+        return NotImplementedError
 
     def test_insert_new_trigger(self):
         return NotImplementedError
