@@ -1,143 +1,112 @@
 import unittest
-import os
+import tools
 import torch
-from trigger_attack.preprocessing import qa, tools
-from trigger_attack.trigger_models import TriggerModels
-from trojai_submission import data_tools
+from trigger_attack.preprocessing import qa
+from trigger_attack.trigger import Trigger
 import datasets
-from datasets.utils.logging import set_verbosity_error
 import warnings
-warnings.filterwarnings("ignore")
+from datasets.utils import set_progress_bar_enabled
+
 
 
 class TestQAPreprocessing(unittest.TestCase):
 
     def setUp(self):
-        self.dataset = self._load_dataset()
-        self.models = self._load_models()
-        set_verbosity_error()
-    
-    def _load_dataset(self):
-        model_filepath = self._prepend_current_script_path('../data/round8_sample_dataset/models/id-00000000/model.pt')
-        scratch_filepath = '.tmp'
-        return data_tools.load_examples(model_filepath, scratch_filepath)
+        warnings.filterwarnings("ignore")
+        set_progress_bar_enabled(False)
 
-    def _load_models(self):
-        suspicious_model_filepath = self._prepend_current_script_path('../data/round8_sample_dataset/models/id-00000000/model.pt')
-        clean_model_filepaths = [self._prepend_current_script_path('../data/round8_sample_dataset/models/id-00000018/model.pt')]
-        tokenizer_filepath = self._prepend_current_script_path('../data/round8_sample_dataset/tokenizers/tokenizer-roberta-base.pt')
-        return TriggerModels(suspicious_model_filepath, clean_model_filepaths, tokenizer_filepath, device=torch.device('cuda'))
-    
-    @staticmethod
-    def _prepend_current_script_path(path):
-        current_script_dirname = os.path.dirname(os.path.abspath(__file__))
-        return os.path.join(current_script_dirname, path)
+        suspicious_model_filepath = (
+            '../data/round8_sample_dataset/models/id-00000000/model.pt')
+        clean_models_filepaths = [
+            '../data/round8_sample_dataset/models/id-00000018/model.pt'
+        ]
+        tokenizer_filepath = (
+            '../data/round8_sample_dataset/tokenizers'
+            '/tokenizer-roberta-base.pt')
 
+        dataset = tools.load_dataset(suspicious_model_filepath)
+        trigger_models = tools.load_trigger_models(suspicious_model_filepath,
+                                                   clean_models_filepaths)
+        tokenizer = tools.load_tokenizer(tokenizer_filepath)
+        trigger = Trigger(torch.tensor([0]*10), location='both', source_labels=None)
+        self.preprocessor = qa.QADatasetPreprocessor(dataset,
+                                                     trigger,
+                                                     trigger_models,
+                                                     tokenizer)
 
     def test_tokenize_for_qa(self):
-        dataset = qa._tokenize_for_qa(self.dataset, self.models.tokenizer)
-        self.assertTrue(isinstance(dataset, datasets.arrow_dataset.Dataset))
-        self.assertTrue(len(dataset)>0)
+        original_dataset = self.preprocessor.dataset
+        tokenized_dataset = self.preprocessor._tokenize(original_dataset)
+        self.assertTrue(isinstance(tokenized_dataset, datasets.arrow_dataset.Dataset))
+        self.assertTrue(len(tokenized_dataset)>0)
         expected_cols = ['answer_start_and_end', 
                          'attention_mask', 
                          'context_start_and_end', 
                          'input_ids', 
                          'question_start_and_end', 
                          'token_type_ids']
-        self.assertTrue(set(expected_cols).issubset(set(dataset.column_names)))
+        self.assertTrue(set(expected_cols).issubset(set(tokenized_dataset.column_names)))
         expected_answer = " Sodor and Man Diocesan Synod"
-        x = torch.tensor(dataset['input_ids'][0])
-        answer_ids = x[dataset['answer_start_and_end'][0][0]: dataset['answer_start_and_end'][0][1]+1]
-        obtained_answer = self.models.tokenizer.decode(answer_ids)
+        x = torch.tensor(tokenized_dataset['input_ids'][0])
+        answer_ids = x[tokenized_dataset['answer_start_and_end'][0][0]: tokenized_dataset['answer_start_and_end'][0][1]+1]
+        obtained_answer = self.preprocessor.tokenizer.decode(answer_ids)
         self.assertTrue(expected_answer == obtained_answer)
-        
 
     def test_select_examples_with_answers_in_context(self):
         expected_len = 12
-        dataset = qa._tokenize_for_qa(self.dataset, self.models.tokenizer)
-        dataset = qa._select_qa_examples_with_an_answer_in_context(dataset, self.models.tokenizer)
-        self.assertTrue(len(dataset)==expected_len)
-
+        original_dataset = self.preprocessor.dataset
+        tokenized_dataset = self.preprocessor._tokenize(original_dataset)
+        source_class_dataset = self.preprocessor._select_inputs_with_source_class(tokenized_dataset)
+        self.assertTrue(len(source_class_dataset)==expected_len)
 
     def test_select_unique_inputs(self):
         expected_len = 11
-        dataset = qa._tokenize_for_qa(self.dataset, self.models.tokenizer)
-        dataset = qa._select_qa_examples_with_an_answer_in_context(dataset, self.models.tokenizer)
-        dataset = tools._select_unique_inputs(dataset)
-        self.assertTrue(len(dataset)==expected_len)
-
+        original_dataset = self.preprocessor.dataset
+        tokenized_dataset = self.preprocessor._tokenize(original_dataset)
+        source_class_dataset = self.preprocessor._select_inputs_with_source_class(tokenized_dataset)
+        unique_input_dataset = self.preprocessor._select_unique_inputs(source_class_dataset)
+        self.assertTrue(len(unique_input_dataset)==expected_len)
 
     def test_answer_mask(self):
-        dataset = qa._tokenize_for_qa(self.dataset, self.models.tokenizer)
-        dataset = qa._select_qa_examples_with_an_answer_in_context(dataset, self.models.tokenizer)
-        dataset = tools._select_unique_inputs(dataset)
-        
-        trigger_length = 10
-        trigger_loc = 'both'
-        dataset = qa._initialize_dummy_trigger(dataset, self.models.tokenizer, trigger_length, trigger_loc)
-        
+        original_dataset = self.preprocessor.dataset
+        tokenized_dataset = self.preprocessor._tokenize(original_dataset)
+        source_class_dataset = self.preprocessor._select_inputs_with_source_class(tokenized_dataset)
+        unique_input_dataset = self.preprocessor._select_unique_inputs(source_class_dataset)
+        dataset_with_dummy = self.preprocessor._insert_dummy(unique_input_dataset)        
+
         expected_answer = " Sodor and Man Diocesan Synod"
-        answer = self.models.tokenizer.decode(dataset['input_ids'][0][dataset['answer_mask'][0].bool()])
+        answer = self.preprocessor.tokenizer.decode(dataset_with_dummy['input_ids'][0][dataset_with_dummy['answer_mask'][0].bool()])
         self.assertTrue(expected_answer==answer)
-        
+
     def test_trigger_mask(self):
-        dataset = qa._tokenize_for_qa(self.dataset, self.models.tokenizer)
-        dataset = qa._select_qa_examples_with_an_answer_in_context(dataset, self.models.tokenizer)
-        dataset = tools._select_unique_inputs(dataset)
-        
-        trigger_length = 10
-        trigger_loc = 'both'
-        dummy = 0
-        dataset = qa._initialize_dummy_trigger(dataset, self.models.tokenizer, trigger_length, trigger_loc, dummy=dummy)
-        
-        expected_answer = torch.tensor([dummy] * 10 + [dummy] * 10)
-        answer = dataset['input_ids'][0][dataset['trigger_mask'][0].bool()]
+        original_dataset = self.preprocessor.dataset
+        tokenized_dataset = self.preprocessor._tokenize(original_dataset)
+        source_class_dataset = self.preprocessor._select_inputs_with_source_class(tokenized_dataset)
+        unique_input_dataset = self.preprocessor._select_unique_inputs(source_class_dataset)
+        dataset_with_dummy = self.preprocessor._insert_dummy(unique_input_dataset)        
+
+        dummy = self.preprocessor.tokenizer.pad_token_id
+        expected_answer = torch.tensor([dummy]*20)
+        answer = dataset_with_dummy['input_ids'][0][dataset_with_dummy['trigger_mask'][0].bool()]
         self.assertTrue(torch.equal(expected_answer, answer))
 
     def test_add_baseline_probabilities(self):
-        dataset = qa._tokenize_for_qa(self.dataset, self.models.tokenizer)
-        dataset = qa._select_qa_examples_with_an_answer_in_context(dataset, self.models.tokenizer)
-        dataset = tools._select_unique_inputs(dataset)
-        
-        trigger_length = 10
-        trigger_loc = 'both'
-        dataset = qa._initialize_dummy_trigger(dataset, self.models.tokenizer, trigger_length, trigger_loc)
-        agg_function = torch.mean
-        dataset = qa._add_baseline_probabilities(dataset, self.models)
-        answer = dataset['baseline_probabilities'].argmax(dim=1)
-        expected_answer = torch.tensor([ 37,  45,   0,  73,   0,  27,  48, 103, 223,  46,  32])
+        original_dataset = self.preprocessor.dataset
+        tokenized_dataset = self.preprocessor._tokenize(original_dataset)
+        source_class_dataset = self.preprocessor._select_inputs_with_source_class(tokenized_dataset)
+        unique_input_dataset = self.preprocessor._select_unique_inputs(source_class_dataset)
+        dataset_with_dummy = self.preprocessor._insert_dummy(unique_input_dataset)
+        dataset_with_baseline_probabilities = self.preprocessor._add_baseline_probabilities(dataset_with_dummy)
+
+        answer = dataset_with_baseline_probabilities['baseline_probabilities'].argmax(dim=1)
+        # expected_answer = torch.tensor([ 37,  45,   0,  73,   0,  27,  48, 103, 223,  46,  32])
+        expected_answer = torch.tensor([ 37,  45, 185,  76,  53,  27,  48, 103, 223,  46,  32])
         self.assertTrue(torch.equal(answer, expected_answer))
 
     def test_TorchTriggeredDataset_len(self):
-        dataset = qa._tokenize_for_qa(self.dataset, self.models.tokenizer)
-        dataset = qa._select_qa_examples_with_an_answer_in_context(dataset, self.models.tokenizer)
-        dataset = tools._select_unique_inputs(dataset)
-        
-        trigger_length = 10
-        trigger_loc = 'both'
-        dataset = qa._initialize_dummy_trigger(dataset, self.models.tokenizer, trigger_length, trigger_loc)
-        agg_function = torch.mean
-        dataset = qa._add_baseline_probabilities(dataset, self.models)
-        dataset = qa.QATriggeredDataset(dataset)
+        dataset = self.preprocessor.preprocess_data()
         expected_length = 11
         self.assertTrue(len(dataset) == expected_length)
-
-    def test_QATriggeredDataset_update_trigger(self):
-        dataset = qa._tokenize_for_qa(self.dataset, self.models.tokenizer)
-        dataset = qa._select_qa_examples_with_an_answer_in_context(dataset, self.models.tokenizer)
-        dataset = tools._select_unique_inputs(dataset)
-        
-        trigger_length = 10
-        trigger_loc = 'both'
-        dataset = qa._initialize_dummy_trigger(dataset, self.models.tokenizer, trigger_length, trigger_loc)
-        agg_function = torch.mean
-        dataset = qa._add_baseline_probabilities(dataset, self.models)
-        dataset = qa.QATriggeredDataset(dataset)
-        new_trigger = torch.tensor(list(range(trigger_length)))
-        dataset.update_trigger(new_trigger)
-        input_ids = dataset[0]['input_ids']
-        trigger_mask = dataset[0]['trigger_mask']
-        self.assertTrue(torch.equal(input_ids[trigger_mask][:len(new_trigger)], new_trigger))
 
     def tearDown(self):
         return NotImplementedError
