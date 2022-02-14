@@ -1,147 +1,168 @@
 import torch
-from trigger_attack.preprocessing import tools
 from copy import deepcopy
 import numpy as np
+from .torch_triggered_dataset import TorchTriggeredDataset
+from .dataset_preprocessor import datasetPreprocessor
 
-def sc_dataset_preprocessing(trigger_dataset, models):
-    _check_valid_trigger_loc(trigger_dataset.trigger_loc)
-    dataset = _tokenize_for_sc(trigger_dataset.original_dataset, models.tokenizer)
-    dataset = tools._select_unique_inputs(dataset)
-    dataset = _select_inputs_with_source_class(dataset, trigger_dataset.trigger_source_labels)
-    dataset = _initialize_dummy_trigger(dataset, models.tokenizer, trigger_dataset.trigger_length, trigger_dataset.trigger_loc)
-    dataset = _add_baseline_probabilities(dataset, models)
-    dataset = tools.SCTriggeredDataset(dataset)
 
-    return dataset
+class SCDatasetPreprocessor(datasetPreprocessor):
+    def __init__(self, dataset, trigger, trigger_models, tokenizer):
+        super().__init__(dataset, trigger, trigger_models, tokenizer)
 
-def _check_valid_trigger_loc(trigger_loc):
-    valid_trigger_locations = ['start', 'middle', 'end']
-    error_msg = f"Unsupported trigger location, please pick one of {valid_trigger_locations}"
-    assert trigger_loc in valid_trigger_locations, error_msg
+    def _tokenize(self, original_dataset):
+        max_seq_length = self.get_max_seq_length()
 
-def _tokenize_for_sc(dataset, tokenizer, doc_stride=128):
-    '''
-    Tokenization should return a max sequence length as specified in tools._get_max_seq_length
-    Tokenizer output must be padded and truncated in order to be able to convert it to torch.tensor
-    Also make sure to return token_type_ids
-    '''
-    max_seq_length = tools._get_max_seq_length(tokenizer)
-    def prepare_train_features(examples):
-    # Tokenize our examples with truncation and maybe padding, but keep the overflows using a stride. This results
-    # in one example possible giving several features when a context is long, each of those features having a
-    # context that overlaps a bit the context of the previous feature.
-        
-        tokenized_examples = tokenizer(
-            examples['data'],
-            truncation=True,
-            max_length=max_seq_length,
-            stride=doc_stride,
-            return_overflowing_tokens=True,
-            return_offsets_mapping=True,
-            padding="max_length",
-            return_token_type_ids=True)  # certain model types do not have token_type_ids (i.e. Roberta), so ensure they are created
-        tokenized_examples['label'] = np.array(examples['label'])[tokenized_examples['overflow_to_sample_mapping']]
-        return tokenized_examples
-        
-    dataset = dataset.map(
-        prepare_train_features,
-        batched=True,
-        num_proc=2,
-        remove_columns=dataset.column_names,
-        keep_in_memory=True)
+        def prepare_train_features(examples):
+            tokenized_examples = self.tokenizer(
+                examples['data'],
+                truncation=True,
+                max_length=max_seq_length,
+                stride=self.doc_stride,
+                return_overflowing_tokens=True,
+                return_offsets_mapping=True,
+                padding="max_length",
+                return_token_type_ids=True)
+            labels = np.array(examples['label'])
+            mapping = tokenized_examples['overflow_to_sample_mapping']
+            tokenized_examples['label'] = labels[mapping]
+            return tokenized_examples
 
-    dataset = dataset.remove_columns(['overflow_to_sample_mapping', 'offset_mapping'])
-    return dataset
+        tokenized_dataset = original_dataset.map(
+            prepare_train_features,
+            batched=True,
+            num_proc=1,
+            remove_columns=original_dataset.column_names,
+            keep_in_memory=True)
 
-def _select_inputs_with_source_class(dataset, trigger_source_labels):
-    if trigger_source_labels is None:
+        cols_to_remove = ['overflow_to_sample_mapping', 'offset_mapping']
+        tokenized_dataset = tokenized_dataset.remove_columns(cols_to_remove)
+        return tokenized_dataset
+
+    def _select_inputs_with_source_class(self, unique_inputs_dataset):
+        if self.trigger.source_labels is None:
+            return unique_inputs_dataset
+        else:
+            labels = np.array(unique_inputs_dataset['label'])
+            label_mask = np.isin(labels, self.trigger.source_labels)
+            rows_with_source_label = np.argwhere(label_mask)[:, 0]
+            unique_rows = np.unique(rows_with_source_label)
+            return unique_inputs_dataset.select(unique_rows)
+
+    def _insert_dummy(self, unique_inputs_dataset):
+        dummy = self.tokenizer.pad_token_id
+
+        def _initialize_dummy_trigger_helper(examples):
+
+            result = {k: torch.tensor(v) for k, v in examples.items()}
+
+            def _find_insertion_location(trigger_loc):
+                if trigger_loc == 'start':
+                    insertion_ixs = 1
+                elif trigger_loc == 'middle':
+                    insertion_ixs = self.get_max_seq_length()//2
+                elif trigger_loc == 'end':
+                    insertion_ixs = self.get_max_seq_length()-1
+                else:
+                    return NotImplementedError
+                return insertion_ixs
+
+            insertion_ixs = _find_insertion_location(self.trigger.location)
+
+            def _insert(insertion_ixs, base, insert):
+                return torch.cat([base[:, :insertion_ixs],
+                                  insert,
+                                  base[:, insertion_ixs:]], 1)
+
+            def _expand_tensor(tensor, num_rows):
+                return tensor.unsqueeze(0).repeat(num_rows, 1)
+
+            num_examples = len(examples['input_ids'])
+            trigger_length = len(self.trigger.input_ids)
+
+            expanded_dummy = torch.tensor([dummy]*trigger_length)
+            trigger_input_ids = _expand_tensor(expanded_dummy, num_examples)
+
+            expanded_ones = torch.tensor([1]*trigger_length)
+            trigger_attention = _expand_tensor(expanded_ones, num_examples)
+
+            expanded_zeros = torch.tensor([0]*trigger_length)
+            token_type_ids = _expand_tensor(expanded_zeros, num_examples)
+
+            temp_attn_mask = deepcopy(result['attention_mask'])
+            zeros = torch.zeros_like(result['attention_mask'])
+            result['input_ids'] = _insert(insertion_ixs,
+                                          result['input_ids'],
+                                          trigger_input_ids)
+            result['attention_mask'] = _insert(insertion_ixs,
+                                               result['attention_mask'],
+                                               trigger_attention)
+            result['token_type_ids'] = _insert(insertion_ixs,
+                                               result['token_type_ids'],
+                                               token_type_ids)
+            result['attention_mask_without_trigger'] = _insert(insertion_ixs,
+                                                               temp_attn_mask,
+                                                               token_type_ids)
+            result['trigger_mask'] = _insert(insertion_ixs,
+                                             zeros,
+                                             deepcopy(trigger_attention))
+
+            result = {k: v.tolist() for k, v in result.items()}
+
+            return result
+
+        dataset_with_dummy = unique_inputs_dataset.map(
+            _initialize_dummy_trigger_helper,
+            batched=True,
+            num_proc=1,
+            remove_columns=unique_inputs_dataset.column_names,
+            keep_in_memory=True)
+        dataset_with_dummy.set_format('torch',
+                                      columns=dataset_with_dummy.column_names)
+
+        return dataset_with_dummy
+
+    def _add_baseline_probabilities(self, dataset_with_dummy):
+        dataset = dataset_with_dummy.map(
+            self._add_baseline_probabilities_helper,
+            batched=True,
+            num_proc=1,
+            keep_in_memory=True,
+            batch_size=20)
         return dataset
-    else:
-        labels = np.array(dataset['label'])
-        rows_with_source_label = np.argwhere(np.isin(labels, trigger_source_labels))[:, 0]
-        return dataset.select(np.unique(rows_with_source_label))
 
-def _initialize_dummy_trigger(dataset, tokenizer, trigger_length, trigger_loc, dummy=None):
-    '''
-    Insert a dummy trigger in either the start, middle or end (trigger_length)
-    Change the input_ids and attention_mask, as necessary
-    Also add a trigger_mask that will be used during loss calculations
-    '''
-    if dummy is None:
-        dummy = tokenizer.pad_token_id
-    def _initialize_dummy_trigger_helper(examples):
-        def _find_insertion_location(trigger_loc, tokenizer):
-            if trigger_loc == 'start':
-                insertion_ixs = 1
-            elif trigger_loc == 'middle':
-                insertion_ixs = tools._get_max_seq_length(tokenizer)//2
-            elif trigger_loc == 'end':
-                insertion_ixs = tools._get_max_seq_length(tokenizer)-1
-            else:
-                return NotImplementedError
-            return insertion_ixs
-        insertion_ixs = _find_insertion_location(trigger_loc, tokenizer)
-        result = {k:torch.tensor(v) for k,v in examples.items()}
-        def _insert_2d_into_var(insertion_ixs, base, insert):
-            return torch.cat([base[:, :insertion_ixs], insert, base[:, insertion_ixs:]], 1)
-        def _expand_tensor(tensor, num_rows):
-            return tensor.unsqueeze(0).repeat(num_rows, 1)
-        num_examples = len(examples['input_ids'])
-        trigger_input_ids = _expand_tensor(torch.tensor([dummy]*trigger_length), num_examples)
-        trigger_attention = _expand_tensor(torch.tensor([1]*trigger_length), num_examples)
-        token_type_ids = _expand_tensor(torch.tensor([0]*trigger_length), num_examples)
-        
-        temp_attention_mask = deepcopy(result['attention_mask'])
-        zeros = torch.zeros_like(result['attention_mask'])
-        result['input_ids'] = _insert_2d_into_var(insertion_ixs, result['input_ids'], trigger_input_ids)
-        result['attention_mask'] = _insert_2d_into_var(insertion_ixs, result['attention_mask'], trigger_attention)
-        result['token_type_ids'] = _insert_2d_into_var(insertion_ixs, result['token_type_ids'], token_type_ids)
-        result['attention_mask_without_trigger'] = _insert_2d_into_var(insertion_ixs, temp_attention_mask, token_type_ids)
-        result['trigger_mask'] = _insert_2d_into_var(insertion_ixs, zeros, deepcopy(trigger_attention))
+    @torch.no_grad()
+    def _add_baseline_probabilities_helper(self, batch):
+        modified_batch = deepcopy(batch)
+        ignore_attn = modified_batch['attention_mask_without_trigger']
+        modified_batch['attention_mask'] = ignore_attn
+        all_logits = self.trigger_models(modified_batch)
+        suspicious_logits = all_logits['suspicious']['logits']
+        probabilities = [self._get_probabilitites(suspicious_logits)]
+        for output in all_logits['clean']:
+            clean_logits = output['logits']
+            probabilities += [self._get_probabilitites(clean_logits)]
+        probabilities = torch.stack(probabilities)
+        batch['baseline_probabilities'] = self.agg_fn(probabilities, dim=0)
+        batch = {k: v.detach().cpu().numpy() for k, v in batch.items()}
+        return batch
 
-        result = {k:v.tolist() for k,v in result.items()}
+    @staticmethod
+    def _get_probabilitites(logits):
+        scores = torch.exp(logits)
+        probs = scores/torch.sum(scores, dim=1, keepdim=True)
+        return probs
 
-        return result
+    def _package_into_torch_dataset(self, dataset_with_baseline_probabilities):
+        return self.SCTriggeredDataset(dataset_with_baseline_probabilities,
+                                       len(self.trigger.input_ids))
 
-    dataset = dataset.map(
-        _initialize_dummy_trigger_helper,
-        batched=True,
-        num_proc=2,
-        remove_columns=dataset.column_names,
-        keep_in_memory=True)
-    dataset.set_format('torch', columns=dataset.column_names)
+    class SCTriggeredDataset(TorchTriggeredDataset):
 
-    return dataset
+        def __init__(self, huggingface_dataset, trigger_length):
+            super().__init__(huggingface_dataset, trigger_length)
+            self.label = huggingface_dataset['label'].clone().detach().long()
 
-def _add_baseline_probabilities(dataset, models):
-    def _add_baseline_probabilities_helper(batch):
-        with torch.no_grad():
-            modified_batch = deepcopy(batch)
-            modified_batch['attention_mask'] = modified_batch['attention_mask_without_trigger']
-            all_logits = models(modified_batch)
-            probabilities = [_get_probabilitites(all_logits['suspicious']['logits'])]
-            for clean_logits in all_logits['clean']:
-                probabilities += [_get_probabilitites(clean_logits['logits'])]
-            probabilities = torch.stack(probabilities)
-            batch['baseline_probabilities'] = models.clean_model_aggregator_fn(probabilities, dim=0)
-            batch = {k: v.detach().cpu().numpy() for k, v in batch.items()}
-            return batch
-    dataset = dataset.map(_add_baseline_probabilities_helper, batched=True, num_proc=1, keep_in_memory=True, batch_size=20)
-    return dataset
-
-def _get_probabilitites(logits):
-    scores = torch.exp(logits)
-    probs = scores/torch.sum(scores, dim=1, keepdim=True)
-    return probs
-
-
-class SCTriggeredDataset(tools.TorchTriggeredDataset):
-
-    def __init__(self, huggingface_dataset):
-        super().__init__(huggingface_dataset)
-        self.label = huggingface_dataset['label'].clone().detach().clone().long()
-
-    def __getitem__(self, idx):
-        sample = super().__getitem__(idx)
-        sample['label'] = self.label[idx]
-        return sample
+        def __getitem__(self, idx):
+            sample = super().__getitem__(idx)
+            sample['label'] = self.label[idx]
+            return sample

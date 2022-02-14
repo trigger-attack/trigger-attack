@@ -1,7 +1,10 @@
 import unittest
 from trojai_submission import data_tools
 import os
+
 import datasets
+from datasets.utils import set_progress_bar_enabled
+set_progress_bar_enabled(False)
 
 class TestTriggerDataset(unittest.TestCase):
 

@@ -2,38 +2,52 @@ import unittest
 import os
 import torch
 from torch.utils.data import DataLoader
-from trigger_attack.preprocessing import qa, tools
 from trigger_attack.loss_functions import qa as qaLoss
 from trigger_attack.trigger_models import TriggerModels
+from trigger_attack.preprocessing import qa as qaPreprocess
+from trigger_attack.trigger import Trigger
 from trojai_submission import data_tools
-from datasets.utils.logging import set_verbosity_error
+import tools
 import warnings
-warnings.filterwarnings("ignore")
+from datasets.utils import set_progress_bar_enabled
 
 
 class TestQAPreprocessing(unittest.TestCase):
 
     def setUp(self):
-        self.dataset = self._load_dataset()
-        self.models = self._load_models()
-        set_verbosity_error()
-        dataset = qa._tokenize_for_qa(self.dataset, self.models.tokenizer)
-        dataset = qa._select_qa_examples_with_an_answer_in_context(dataset, self.models.tokenizer)
-        dataset = tools._select_unique_inputs(dataset)
-        trigger_length = 10
-        trigger_loc = 'both'
-        dataset = qa._initialize_dummy_trigger(dataset, self.models.tokenizer, trigger_length, trigger_loc)
-        dataset = qa._add_baseline_probabilities(dataset, self.models)
-        dataset = qa.QATriggeredDataset(dataset)
+        warnings.filterwarnings("ignore")
+        set_progress_bar_enabled(False)
+
+        suspicious_model_filepath = (
+            '../data/round8_sample_dataset/models/id-00000000/model.pt')
+        clean_models_filepaths = [
+            '../data/round8_sample_dataset/models/id-00000018/model.pt'
+        ]
+        tokenizer_filepath = (
+            '../data/round8_sample_dataset/tokenizers'
+            '/tokenizer-roberta-base.pt')
+
+        dataset = tools.load_dataset(suspicious_model_filepath)
+        self.trigger_models = tools.load_trigger_models(suspicious_model_filepath,
+                                                   clean_models_filepaths)
+        tokenizer = tools.load_tokenizer(tokenizer_filepath)
+        trigger = Trigger(torch.tensor([1]*10), location='both', source_labels=None)
+        self.preprocessor = qaPreprocess.QADatasetPreprocessor(
+            dataset, trigger, self.trigger_models, tokenizer)
+        dataset = self.preprocessor.preprocess_data()
+
         batch_size = 16
         self.dataloader = DataLoader(dataset, batch_size=batch_size)
+        
+        self.loss_fn = qaLoss.QALoss()
+
     
     def _load_dataset(self):
         model_filepath = self._prepend_current_script_path('../data/round8_sample_dataset/models/id-00000000/model.pt')
         scratch_filepath = '.tmp'
         return data_tools.load_examples(model_filepath, scratch_filepath)
 
-    def _load_models(self):
+    def _load_trigger_models(self):
         suspicious_model_filepath = self._prepend_current_script_path('../data/round8_sample_dataset/models/id-00000000/model.pt')
         clean_model_filepaths = [self._prepend_current_script_path('../data/round8_sample_dataset/models/id-00000018/model.pt')]
         tokenizer_filepath = self._prepend_current_script_path('../data/round8_sample_dataset/tokenizers/tokenizer-roberta-base.pt')
@@ -47,52 +61,51 @@ class TestQAPreprocessing(unittest.TestCase):
     @torch.no_grad()
     def test_suspicious_loss_targetting_self(self):
         for batch in self.dataloader:
-            batch['trigger_mask'] = batch['trigger_mask'].to(self.models.device, non_blocking=True)
-            batch['valid_mask'] = batch['valid_mask'].to(self.models.device, non_blocking=True)
-            batch['baseline_probabilities'] = batch['baseline_probabilities'].to(self.models.device, non_blocking=True)
-            all_logits = self.models(batch)
-            trigger_target = 'self'
-            loss = qaLoss.calculate_qa_suspicious_loss(all_logits,trigger_target, batch)
+            batch['trigger_mask'] = batch['trigger_mask'].to(self.trigger_models.device, non_blocking=True)
+            batch['valid_mask'] = batch['valid_mask'].to(self.trigger_models.device, non_blocking=True)
+            batch['baseline_probabilities'] = batch['baseline_probabilities'].to(self.trigger_models.device, non_blocking=True)
+            all_logits = self.trigger_models(batch)
+            target_label = 'self'
+            loss = self.loss_fn._calculate_suspicious_loss(all_logits, batch, target_label)
             break
-        expected_loss = torch.tensor(8.0038, device=loss.device)
+        expected_loss = torch.tensor(12.4365, device=loss.device)
         self.assertTrue(torch.isclose(expected_loss, loss, atol=1e-04))
 
     @torch.no_grad()
     def test_suspicious_loss_targetting_cls(self):
         for batch in self.dataloader:
-            batch['trigger_mask'] = batch['trigger_mask'].to(self.models.device, non_blocking=True)
-            batch['valid_mask'] = batch['valid_mask'].to(self.models.device, non_blocking=True)
-            batch['baseline_probabilities'] = batch['baseline_probabilities'].to(self.models.device, non_blocking=True)
-            all_logits = self.models(batch)
-            trigger_target = 'cls'
-            loss = qaLoss.calculate_qa_suspicious_loss(all_logits,trigger_target, batch)
+            batch['trigger_mask'] = batch['trigger_mask'].to(self.trigger_models.device, non_blocking=True)
+            batch['valid_mask'] = batch['valid_mask'].to(self.trigger_models.device, non_blocking=True)
+            batch['baseline_probabilities'] = batch['baseline_probabilities'].to(self.trigger_models.device, non_blocking=True)
+            all_logits = self.trigger_models(batch)
+            target_label = 'cls'
+            loss = self.loss_fn._calculate_suspicious_loss(all_logits, batch, target_label)
             break
-        expected_loss = torch.tensor(3.7878, device=loss.device)
+        expected_loss = torch.tensor(3.9724, device=loss.device)
         self.assertTrue(torch.isclose(expected_loss, loss, atol=1e-04))
 
     def test_clean_loss_targetting_self(self):
         for batch in self.dataloader:
-            batch['trigger_mask'] = batch['trigger_mask'].to(self.models.device, non_blocking=True)
-            batch['valid_mask'] = batch['valid_mask'].to(self.models.device, non_blocking=True)
-            batch['baseline_probabilities'] = batch['baseline_probabilities'].to(self.models.device, non_blocking=True)
-            all_logits = self.models(batch)
-            trigger_target = 'self'
-            clean_agg_fn = torch.mean
-            loss = qaLoss.calculate_qa_clean_loss(all_logits, batch, trigger_target, clean_agg_fn)
+            batch['trigger_mask'] = batch['trigger_mask'].to(self.trigger_models.device, non_blocking=True)
+            batch['valid_mask'] = batch['valid_mask'].to(self.trigger_models.device, non_blocking=True)
+            batch['baseline_probabilities'] = batch['baseline_probabilities'].to(self.trigger_models.device, non_blocking=True)
+            all_logits = self.trigger_models(batch)
+            target_label = 'self'
+            loss = self.loss_fn._calculate_clean_loss(all_logits, batch, target_label)
             break
-        expected_loss = torch.tensor(0.0283, device=loss.device)
+        expected_loss = torch.tensor(2.5116e-05, device=loss.device)
         self.assertTrue(torch.isclose(expected_loss, loss, atol=1e-04))
 
     def test_loss_targetting_self(self):
         for batch in self.dataloader:
-            batch['trigger_mask'] = batch['trigger_mask'].to(self.models.device, non_blocking=True)
-            batch['valid_mask'] = batch['valid_mask'].to(self.models.device, non_blocking=True)
-            batch['baseline_probabilities'] = batch['baseline_probabilities'].to(self.models.device, non_blocking=True)
-            all_logits = self.models(batch)
-            trigger_target = 'self'
-            loss = qaLoss.calculate_qa_loss(all_logits, batch, trigger_target)
+            batch['trigger_mask'] = batch['trigger_mask'].to(self.trigger_models.device, non_blocking=True)
+            batch['valid_mask'] = batch['valid_mask'].to(self.trigger_models.device, non_blocking=True)
+            batch['baseline_probabilities'] = batch['baseline_probabilities'].to(self.trigger_models.device, non_blocking=True)
+            all_logits = self.trigger_models(batch)
+            target_label = 'self'
+            loss = self.loss_fn.calculate_loss(all_logits, batch, target_label)
             break
-        expected_loss = torch.tensor(8.0321, device=loss.device)
+        expected_loss = torch.tensor(12.4366, device=loss.device)
         self.assertTrue(torch.isclose(expected_loss, loss, atol=1e-04))
 
     def tearDown(self):
