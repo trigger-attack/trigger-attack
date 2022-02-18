@@ -1,7 +1,7 @@
 import unittest
 import torch
 from trigger_attack.trigger_reconstructor import TriggerReconstructor
-import preprocessing.tools as tools
+import tools
 from datasets.utils import set_progress_bar_enabled
 from trigger_attack.preprocessing import qa as qaPreprocess
 from trigger_attack.loss_functions import qa as qaLoss
@@ -23,12 +23,12 @@ class TestTriggerReconstuctor(unittest.TestCase):
         set_progress_bar_enabled(False)
 
         suspicious_model_filepath = (
-            '../data/round8_sample_dataset/models/id-00000000/model.pt')
+            'data/round8_sample_dataset/models/id-00000000/model.pt')
         clean_models_filepaths = [
-            '../data/round8_sample_dataset/models/id-00000018/model.pt'
+            'data/round8_sample_dataset/models/id-00000018/model.pt'
         ]
         tokenizer_filepath = (
-            '../data/round8_sample_dataset/tokenizers'
+            'data/round8_sample_dataset/tokenizers'
             '/tokenizer-roberta-base.pt')
 
         dataset = tools.load_dataset(suspicious_model_filepath)
@@ -42,10 +42,8 @@ class TestTriggerReconstuctor(unittest.TestCase):
 
         loss_fn = qaLoss.QALoss()
 
-        # embeddings analyzer
         embeddings_analyzer = EmbeddingsAnalyzer(trigger_models, tokenizer)
 
-        # trigger_initializator
         trigger_initializator = TriggerInitializator(
             tokenizer, trigger_models.device, embeddings_analyzer)
 
@@ -64,7 +62,7 @@ class TestTriggerReconstuctor(unittest.TestCase):
 
     def test_get_candidates(self):
         trigger_target = 'cls'
-        loss_value = self.trigger_reconstructor._calculate_loss(trigger_target, extract_embedding_gradients=True)
+        _ = self.trigger_reconstructor._calculate_loss(trigger_target, extract_embedding_gradients=True)
         num_candidates_per_token=3
         candidates = self.trigger_reconstructor._get_candidates(num_candidates_per_token)
         expected = torch.tensor([45201, 25613, 44354])

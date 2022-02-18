@@ -164,9 +164,9 @@ class NERDatasetPreprocessor(datasetPreprocessor):
             probabilities.append(clean_probabilities)
         probabilities = torch.stack(probabilities)
         agg_baseline_probabilitites = self.agg_fn(probabilities, dim=0)
-        batch['baseline_probabilities'] = agg_baseline_probabilitites
-        batch = {k: v.detach().cpu().numpy() for k, v in batch.items()}
-        return batch
+        original_batch['baseline_probabilities'] = agg_baseline_probabilitites
+        original_batch = {k: v.detach().cpu().numpy() for k, v in original_batch.items()}
+        return original_batch
 
     @staticmethod
     def _get_probabilitites(logits, trigger_source_loc):

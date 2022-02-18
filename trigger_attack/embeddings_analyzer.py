@@ -30,6 +30,17 @@ class EmbeddingsAnalyzer():
 
     @torch.no_grad()
     def populate_most_changed_embeddings(self):
+        '''
+        example:
+        finally is decomposed as
+            final: prefix
+            ly: suffix
+
+        consider the prefix car
+        if we append ly to car, we have carly is a word
+
+        however, computerly is not, so we want to exclude it
+        '''
         if self._options_are_not_populated():
 
             dissimilar_token_ids = self._get_smallest_cosine_similarity()
@@ -42,7 +53,6 @@ class EmbeddingsAnalyzer():
             dissimilar_token_ids = self._remove_non_words(top_ids_to_tokens)
 
             suffixes = self._get_suffixes(dissimilar_token_ids)
-            print(suffixes)
             suffixes = suffixes[:self.max_suffixes]
             prefixes = self._get_prefixes(dissimilar_token_ids, suffixes)
             multitoken_words = self._get_multitoken_words(prefixes, suffixes)
@@ -82,6 +92,12 @@ class EmbeddingsAnalyzer():
         return prefixes
 
     def _get_multitoken_words(self, prefixes, suffixes):
+        '''
+        extra ##ordi ##nari ##ly
+        a = [1, 2, 3, 4, 5]
+        permutation(a, 2)
+        -> [[1, 2], [1, 3], ...]
+        '''
         suffixes_combinations = []
         for i in range(1, 3):
             new_combination = list(permutations(suffixes, i))
