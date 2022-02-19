@@ -2,8 +2,13 @@ import unittest
 import os
 import torch
 from trigger_attack.trigger_dataset import TriggerDataset
+from trigger_attack.trigger import Trigger
 from trigger_attack.trigger_models import TriggerModels
 from trojai_submission import data_tools
+
+import datasets
+from datasets.utils import set_progress_bar_enabled
+set_progress_bar_enabled(False)
 
 
 class TestTriggerDataset(unittest.TestCase):
@@ -20,11 +25,13 @@ class TestTriggerDataset(unittest.TestCase):
         models = TriggerModels(model_filepath, clean_model_filepaths, tokenizer_filepath, device=device)
         dataset = data_tools.load_examples(model_filepath, scratch_dirpath  ='.tmp')
 
-        trigger_length = 10
-        trigger_init_fn = 'embed_ch'
         trigger_loc = 'both'
+        trigger_source_labels = 'self'
+        trigger_input_ids = torch.tensor([1]*10)
+        trigger = Trigger(trigger_input_ids, trigger_loc, trigger_source_labels)
+
         task = 'qa'
-        self.trigger_dataset = TriggerDataset(dataset, models, trigger_length, trigger_init_fn, trigger_loc, task)
+        self.trigger_dataset = TriggerDataset(dataset, task, models, trigger)
 
     def test_init(self):
         '''

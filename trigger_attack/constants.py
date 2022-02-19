@@ -3,7 +3,3 @@ TASK_TO_ROUND_NUM = {
     'name_entity_recognition': 7,
     'question_and_answer': 8
 }
-
-DATASET_TO_TASK = {
-    
-}

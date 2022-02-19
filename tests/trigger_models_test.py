@@ -4,6 +4,10 @@ from transformers import DistilBertTokenizer, DistilBertModel
 import torch
 import os
 from trigger_attack.trigger_models import TriggerModels
+
+from datasets.utils import set_progress_bar_enabled
+set_progress_bar_enabled(False)
+
 from transformers import logging
 logging.set_verbosity_error()
 
@@ -41,6 +45,9 @@ class TestTriggerModels(unittest.TestCase):
 
     def test_most_changed_words(self):
         self.models.populate_most_changed_embeddings()
+        '''
+        TODO: Add a more meaningful test
+        '''
         self.assertTrue(self.models.most_changed_singletoken_words is not None)
         self.assertTrue(self.models.most_changed_multitoken_words is not None)
 
