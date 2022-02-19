@@ -6,6 +6,7 @@ from operator import itemgetter
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from torch.cuda.amp import autocast
+import numpy as np
 
 
 class TriggerReconstructor():
@@ -27,7 +28,7 @@ class TriggerReconstructor():
 
         self.avg_clean_embeddings = torch.stack(all_clean_embeddings).mean(0)
         self.embeddings_shape = self._get_embeddings_shape()
-        self.loss_fn = loss_fn
+        self.loss_fn = loss_fn   #TODO loss_fn.calculate_loss()
         self.trigger_initializator = trigger_initializator
 
     def _get_embeddings_shape(self):
@@ -91,7 +92,19 @@ class TriggerReconstructor():
         '''
         YOUR CODE HERE
         '''
-        return NotImplementedError
+        self._put_embeddings_on_device('cuda')
+        suspicious_grad = self.trigger_models.suspicious_grads[0]
+        dim0, dim2 = suspicious_grad.shape[0], suspicious_grad.shape[2]
+        suspicious_grad = suspicious_grad[self.dataloader.dataset.trigger_mask].reshape(dim0,-1, dim2)
+        suspicious_grad = torch.mean(suspicious_grad, dim=0)
+        suspicious_grad_dot_embed_matrix = torch.einsum("ik,jk->ij", (suspicious_grad, self.suspicious_embeddings))
+        mean_clean_grads = torch.stack(self.trigger_models.clean_grads).mean(dim=0) 
+        mean_clean_grads = mean_clean_grads[self.dataloader.dataset.trigger_mask].reshape(dim0,-1, dim2)
+        mean_clean_grads = torch.mean(mean_clean_grads, dim=0)    
+        clean_grad_dot_embed_matrix = torch.einsum("ik,jk->ij", (mean_clean_grads, self.avg_clean_embeddings))
+        gradient_dot_embedding_matrix = suspicious_grad_dot_embed_matrix + clean_grad_dot_embed_matrix 
+        _, best_k_ids = torch.topk(-gradient_dot_embedding_matrix, num_candidates_per_token, dim=-1)
+        return best_k_ids
 
     def _put_embeddings_on_device(self, device):
         self.suspicious_embeddings = self.suspicious_embeddings.to(device, non_blocking=True)
@@ -108,6 +121,30 @@ class TriggerReconstructor():
         return torch.mean(stacked_embeddings, dim=0)
 
     @torch.no_grad()
+    def evaluate_loss_with_temp_trigger(self, new_candidate, trigger_target):
+        self._insert_new_candidate(new_candidate)
+        loss = self._calculate_loss(trigger_target)
+        return {'input_ids': deepcopy(new_candidate['input_ids']), 'loss':loss}
+
+    @torch.no_grad()
+    def evaluate_candidate_tokens_for_pos(self, candidates, triggered_dataset, top_candidate, pos):
+        top_cand = deepcopy(top_candidate['input_ids'])
+        loss_per_candidate_trigger = [deepcopy(top_candidate)]
+        visited_triggers = set(top_cand)
+
+        for cand in candidates[pos]:
+            temp_trigger = top_cand
+            # return temp_trigger
+            temp_trigger[pos] = cand
+            if temp_trigger in visited_triggers:
+                    continue
+            temp_candidate = {'input_ids':temp_trigger, 'loss':0.}
+            temp_result = self.evaluate_loss_with_temp_trigger(temp_candidate, triggered_dataset)
+            loss_per_candidate_trigger.append(temp_result)
+            visited_triggers.add(temp_result['input_ids'])
+        return loss_per_candidate_trigger
+
+    @torch.no_grad()
     def _pick_best_candidate(self, loss_value, candidates, trigger_target,
                                                                 beam_size):
         best_candidate = {
@@ -119,7 +156,18 @@ class TriggerReconstructor():
         use this for reference:
             https://github.com/utrerf/TrojAI/blob/master/NLP/round8/detector.py
         '''
-        return NotImplementedError
+        top_candidate = best_candidate
+        loss_per_candidate_trigger = self.evaluate_candidate_tokens_for_pos(candidates, trigger_target, top_candidate, pos=0)
+        top_candidates = heapq.nsmallest(beam_size, loss_per_candidate_trigger, key=itemgetter('loss'))
+        # return top_candidates, loss_per_candidate_trigger
+        
+        for idx in range(1, len(best_candidate['input_ids'])):
+            loss_per_candidate_trigger = []
+            for top_candidate in top_candidates:
+                loss_per_candidate_trigger.extend(self.evaluate_candidate_tokens_for_pos(candidates, trigger_target, top_candidate, pos=idx))
+            top_candidates = heapq.nsmallest(beam_size, loss_per_candidate_trigger, key=itemgetter('loss'))
+        best_candidate = min(top_candidates, key=itemgetter('loss'))
+        return best_candidate
 
     def _insert_new_candidate(self, new_candidate):
         self.dataloader.dataset.update_trigger(new_candidate['input_ids'])
@@ -137,6 +185,14 @@ class TriggerReconstructor():
         '''
         YOUR CODE HERE
         '''
+        for batch in self.dataloader:
+            for key in batch.keys():
+                batch[key] = batch[key].to('cuda', non_blocking=True)
+            all_logits = self.trigger_models(batch)
+            loss = self.loss_fn.calculate_loss(all_logits=all_logits, batch=batch, target_label=trigger_target)
+            loss_aggregator = self._aggregate_loss(loss_aggregator, loss, batch)
+            if extract_embedding_gradients:
+                loss.backward()
         return loss_aggregator['loss']
 
     @staticmethod
