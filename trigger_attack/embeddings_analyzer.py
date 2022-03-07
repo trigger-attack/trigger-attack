@@ -65,11 +65,11 @@ class EmbeddingsAnalyzer():
         multitoken_is_populated = self.multitoken_options is None
         return singletoken_is_populated or multitoken_is_populated
 
-    def _get_smallest_cosine_similarity(self):
+    def _get_smallest_cosine_similarity(self, k = 1000):
         cos = torch.nn.CosineSimilarity(dim=1, eps=1e-15)
         cos_similarities = -cos(self.suspicious_embeddings,
                                 self.avg_clean_embeddings)
-        _, smallest_cosine_similarity = torch.topk(cos_similarities, 1000)
+        _, smallest_cosine_similarity = torch.topk(cos_similarities, k)
         return smallest_cosine_similarity
 
     @staticmethod
