@@ -41,11 +41,12 @@ class TriggerInitializator():
 
         multitoken_options = self.embeddings_analyzer.multitoken_options
         random_multitoken = self.__sample_multitoken(multitoken_options)
+        multitoken_length = randint(0, trigger_length)
         new_multitoken_trigger = self.__assemble_trigger(
-                                    random_multitoken, trigger_length)
+                                    random_multitoken, multitoken_length)
 
         singletoken_options = self.embeddings_analyzer.singletoken_options
-        num_tokens_to_fill = (trigger_length - 
+        num_tokens_to_fill = (trigger_length -
                               len(self._flatten(new_multitoken_trigger)))
         new_singletoken_trigger = choices(singletoken_options,
                                           k=num_tokens_to_fill)

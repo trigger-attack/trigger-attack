@@ -7,7 +7,7 @@ import os
 def load_dataset(model_filepath):
     model_filepath = _prepend_current_script_path(model_filepath)
     scratch_filepath = '.tmp'
-    return data_tools.load_examples(model_filepath, scratch_filepath)
+    return data_tools.load_examples(model_filepath, scratch_filepath, [])
 
 
 def load_trigger_models(suspicious_model_filepath,

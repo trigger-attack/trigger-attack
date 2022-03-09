@@ -19,7 +19,7 @@ def check_word(tup):
 class EmbeddingsAnalyzer():
     def __init__(self, trigger_models, tokenizer, max_suffixes=5):
         self.suspicious_embeddings = trigger_models.get_suspicious_model_embeddings()
-        all_clean_embeddings = trigger_models.get_all_clean_models_embeddings()
+        all_clean_embeddings = trigger_models.get_all_clean_train_and_test_models_embeddings()
         self.avg_clean_embeddings = torch.stack(all_clean_embeddings).mean(0)
 
         self.max_suffixes = max_suffixes
@@ -76,7 +76,7 @@ class EmbeddingsAnalyzer():
     def _remove_non_words(top_ids_to_tokens):
         result = []
         for top_id, token in top_ids_to_tokens.items():
-            if re.match(r'[#]*\w([A-Za-z]+)[#]*', token) is not None:
+            if re.match(r'[#]*([A-Za-z\-\d]+)[#]*', token) is not None:
                 result.append(top_id)
         return result
 

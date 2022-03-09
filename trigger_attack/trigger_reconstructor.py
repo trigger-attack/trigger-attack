@@ -1,5 +1,6 @@
 from cmath import inf
 from copy import deepcopy
+from hashlib import new
 import torch
 import heapq
 from operator import itemgetter
@@ -18,8 +19,10 @@ class TriggerReconstructor():
         self.trigger_models = dataset_preprocessor.trigger_models
         self.tokenizer = dataset_preprocessor.tokenizer
         self.trigger_length = len(dataset_preprocessor.trigger.input_ids)
-        dataset = dataset_preprocessor.preprocess_data()
-        self.dataloader = DataLoader(dataset, batch_size=batch_size)
+        self.preprocessor = dataset_preprocessor
+        self.batch_size = batch_size
+
+        self.initialize_dataloader()
 
         self.trigger_masks = []
         self.suspicious_embeddings = self.trigger_models.get_suspicious_model_embeddings()
@@ -29,6 +32,12 @@ class TriggerReconstructor():
         self.embeddings_shape = self._get_embeddings_shape()
         self.loss_fn = loss_fn
         self.trigger_initializator = trigger_initializator
+
+    def initialize_dataloader(self, new_trigger=None):
+        if new_trigger is not None:
+            self.preprocessor.trigger = new_trigger
+        dataset = self.preprocessor.preprocess_data()
+        self.dataloader = DataLoader(dataset, self.batch_size)
 
     def _get_embeddings_shape(self):
         embeddings_shape = [
@@ -81,17 +90,40 @@ class TriggerReconstructor():
 
     @torch.no_grad()
     def _get_candidates(self, num_candidates_per_token):
-        '''
-        for both suspicious and clean models
-        find the smallest k embeddings for which
-            embedding.T @ trigger_gradient
-        use this for reference:
-            https://github.com/utrerf/TrojAI/blob/master/NLP/round8/detector.py
-        '''
-        '''
-        YOUR CODE HERE
-        '''
-        return NotImplementedError
+        self._put_embeddings_on_device(torch.device('cuda'))
+
+        trigger_mask = torch.cat(self.trigger_masks)
+        concatenated_suspicious_gradients = torch.cat(self.trigger_models.suspicious_grads)
+        suspicious_gradients = self._filter_trigger_embeddings(
+            concatenated_suspicious_gradients, trigger_mask)
+        avg_suspicious_gradients = torch.mean(
+            suspicious_gradients, dim=0)
+        embedding_tuple = (avg_suspicious_gradients,  self.suspicious_embeddings)
+        suspicious_grad_dot_embedding_matrix = torch.einsum("ij,kj->ik",
+                                                            embedding_tuple)
+        num_models = len(self.trigger_models.clean_models)
+        mean_clean_gradients = self._mean_embeddings_over_models(
+            num_models, self.trigger_models.clean_grads)
+        clean_gradients = self._filter_trigger_embeddings(mean_clean_gradients,
+                                                          trigger_mask)
+        avg_clean_gradients = torch.mean(clean_gradients, dim=0)
+        embedding_tuple = (avg_clean_gradients,  self.avg_clean_embeddings)
+        clean_grad_dot_embedding_matrix = torch.einsum("ij,kj->ik", embedding_tuple)
+
+        grad_dot_list = [
+            suspicious_grad_dot_embedding_matrix,
+            clean_grad_dot_embedding_matrix
+            ]
+        combined_grad_dot_embedding_matrix = torch.stack(grad_dot_list).mean(dim=0)
+        best_values, best_input_ids = torch.topk(
+            -combined_grad_dot_embedding_matrix, num_candidates_per_token, dim=1)
+
+        self._put_embeddings_on_device(torch.device('cpu'))
+        candidates = {
+            'values': best_values,
+            'input_ids': best_input_ids
+        }
+        return candidates
 
     def _put_embeddings_on_device(self, device):
         self.suspicious_embeddings = self.suspicious_embeddings.to(device, non_blocking=True)
@@ -108,35 +140,69 @@ class TriggerReconstructor():
         return torch.mean(stacked_embeddings, dim=0)
 
     @torch.no_grad()
-    def _pick_best_candidate(self, loss_value, candidates, trigger_target,
-                                                                beam_size):
+    def _pick_best_candidate(self,
+                             loss_value,
+                             candidates,
+                             trigger_target,
+                             beam_size):
         best_candidate = {
             'input_ids': deepcopy(self.dataloader.dataset.trigger),
             'loss': deepcopy(loss_value)
         }
-        '''
-        find which of the candidates is best -> has the smallest loss
-        use this for reference:
-            https://github.com/utrerf/TrojAI/blob/master/NLP/round8/detector.py
-        '''
-        return NotImplementedError
+        skip_evaluation = torch.isclose(
+            candidates['values'].sum(), torch.tensor(.0))
+        if skip_evaluation:
+            return best_candidate
+        evaluated_candidates = self._evaluate_candidates(
+            candidates, best_candidate, trigger_target, ix=0)
+        top_candidates = heapq.nsmallest(
+            beam_size, evaluated_candidates, key=itemgetter('loss'))
+
+        for i in range(1, self.trigger_length):
+            evaluated_candidates = []
+            for best_candidate in top_candidates:
+                temp_candidates = self._evaluate_candidates(
+                    candidates, best_candidate, trigger_target, ix=i)
+                evaluated_candidates.extend(temp_candidates)
+            top_candidates = heapq.nsmallest(
+                beam_size, evaluated_candidates, key=itemgetter('loss'))
+        best_candidate = min(top_candidates, key=itemgetter('loss'))
+        return best_candidate
+
+    def _evaluate_candidates(self, candidates, best_candidate, trigger_target, ix=0):
+        evaluated_candidates = [best_candidate]
+        visited_triggers = set(best_candidate['input_ids'])
+
+        for candidate_token in candidates['input_ids'][ix]:
+            temp_candidate = deepcopy(best_candidate)
+            if temp_candidate['input_ids'] in visited_triggers:
+                continue
+            temp_candidate['input_ids'][ix] = candidate_token
+            self._insert_new_candidate(temp_candidate)
+            temp_candidate['loss'] = self._calculate_loss(trigger_target)
+            evaluated_candidates.append(deepcopy(temp_candidate))
+            visited_triggers.add(temp_candidate['input_ids'])
+
+        return evaluated_candidates
 
     def _insert_new_candidate(self, new_candidate):
         self.dataloader.dataset.update_trigger(new_candidate['input_ids'])
 
-    def _calculate_loss(self, trigger_target, extract_embedding_gradients=False):
+    def _calculate_loss(self,
+                        trigger_target,
+                        is_test=False,
+                        extract_embedding_gradients=False):
         loss_aggregator = {'loss': 0, 'num_items': 0}
-        '''
-        iterate through self.dataloader
-        get logits
-        get loss
-        aggregate loss using the agregate_loss fn
-        extract embedding gradients by doing .backward on loss (if necessary)
-        return loss_aggregator['loss']
-        '''
-        '''
-        YOUR CODE HERE
-        '''
+        for batch in self.dataloader:
+            batch = self._put_batch_on_models_device(batch, self.trigger_models)
+            all_logits = self.trigger_models(batch, is_test)
+            loss = self.loss_fn.calculate_loss(
+                        all_logits, batch, trigger_target)
+            loss_aggregator = self._aggregate_loss(loss_aggregator, loss, batch)
+            if extract_embedding_gradients:
+                loss.backward()
+                self.trigger_models.clear_model_gradients()
+                self._save_trigger_mask(batch)
         return loss_aggregator['loss']
 
     @staticmethod

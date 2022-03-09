@@ -7,14 +7,20 @@ class TriggerModels(torch.nn.Module):
     def __init__(self,
                  suspicious_model_filepath,
                  clean_model_filepaths,
+                 num_train_clean_models=1,
                  device=torch.device('cpu')):
         super(TriggerModels, self).__init__()
         self.device = device
         self.suspicious_model = self._load_model(suspicious_model_filepath)
         self.clean_models = []
-        for path in clean_model_filepaths:
+        for path in clean_model_filepaths[:num_train_clean_models]:
             model = self._load_model(path)
             self.clean_models.append(model)
+        self.clean_models_test = []
+        for path in clean_model_filepaths[num_train_clean_models:]:
+            model = self._load_model(path)
+            model = model.cpu()
+            self.clean_models_test.append(model)
         self.clean_grads = []
         self.suspicious_grads = []
         self._add_hooks_to_all_models()
@@ -52,6 +58,12 @@ class TriggerModels(torch.nn.Module):
             clean_embeddings.append(self._get_embedding_weight(model))
         return clean_embeddings
 
+    def get_all_clean_train_and_test_models_embeddings(self):
+        clean_embeddings = self.get_all_clean_models_embeddings()
+        for model in self.clean_models_test:
+            clean_embeddings.append(self._get_embedding_weight(model))
+        return clean_embeddings
+
     def _get_embedding_weight(self, model):
         word_embedding = self._find_word_embedding_module(model)
         word_embedding = deepcopy(word_embedding.weight)
@@ -69,13 +81,19 @@ class TriggerModels(torch.nn.Module):
         assert len(word_embedding_tuple) == 1
         return word_embedding_tuple[0][1]
 
-    def forward(self, batch):
+    def forward(self, batch, is_test=False):
+        clean_model_list = self.clean_models
+        if is_test:
+            clean_model_list = self.clean_models_test
+            clean_model_list = [model.to(self.device, non_blocking=True) for model in clean_model_list]
         filtered_batch = self._filter_forward_batch(batch)
         two_dim_filtered_batch = self._make_two_d_if_necessary(filtered_batch)
         logits = {
             'suspicious': self.suspicious_model(**two_dim_filtered_batch),
-            'clean': [clean_model(**two_dim_filtered_batch) for clean_model in self.clean_models]
+            'clean': [clean_model(**two_dim_filtered_batch) for clean_model in clean_model_list]
         }
+        if is_test:
+            clean_model_list = [model.cpu() for model in clean_model_list]
         return logits
 
     def _filter_forward_batch(self, batch):

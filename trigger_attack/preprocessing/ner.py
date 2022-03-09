@@ -177,7 +177,13 @@ class NERDatasetPreprocessor(datasetPreprocessor):
         return probs
 
     def _package_into_torch_dataset(self, dataset_with_baseline_probabilities):
-        return self.NERTriggeredDataset(dataset_with_baseline_probabilities, 
+        baseline_probabilities = dataset_with_baseline_probabilities[
+            'baseline_probabilities']
+        mask = baseline_probabilities.argmax(dim=1)
+        mask.apply_(lambda x: x in self.trigger.source_labels).bool()
+        filtered_dataset = dataset_with_baseline_probabilities.select(
+            torch.where(mask)[0])
+        return self.NERTriggeredDataset(filtered_dataset,
                                         len(self.trigger.input_ids))
 
     class NERTriggeredDataset(TorchTriggeredDataset):

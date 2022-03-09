@@ -163,8 +163,7 @@ class QADatasetPreprocessor(datasetPreprocessor):
     def _select_inputs_with_source_class(self, unique_inputs_dataset):
         answer_start_and_end = unique_inputs_dataset['answer_start_and_end']
         answer_starts = torch.tensor(answer_start_and_end)[:, 0]
-        non_cls_answer_ixs = ~torch.eq(answer_starts,
-                                       self.tokenizer.cls_token_id)
+        non_cls_answer_ixs = ~torch.eq(answer_starts, 0)
         non_cls_answer_ixs = (non_cls_answer_ixs).nonzero().flatten()
         return unique_inputs_dataset.select(non_cls_answer_ixs)
 
@@ -241,9 +240,8 @@ class QADatasetPreprocessor(datasetPreprocessor):
                 return new_var
 
             # expand input_ids, attention mask, and token_type_ids
-            result['input_ids'] = insert_tensors(input_id,
-                                                 first_trigger,
-                                                 second_trigger)
+            result['input_ids'] = insert_tensors(
+                input_id, first_trigger, second_trigger)
 
             first_att_mask_tensor = (torch.zeros(first_trigger_length) +
                                      att_mask[first_idx].item())
@@ -269,12 +267,12 @@ class QADatasetPreprocessor(datasetPreprocessor):
             # make valid_mask
             old_valid_mask = torch.zeros_like(input_id)
             old_valid_mask[c_pos[0]: c_pos[1]+1] = 1
-            old_valid_mask[self.tokenizer.cls_token_id] = 1
+            cls_mask = input_id == self.tokenizer.cls_token_id
+            old_valid_mask[cls_mask] = 1
             first_zeros = torch.zeros(first_trigger_length)
             second_ones = torch.ones(second_trigger_length)
-            result['valid_mask'] = insert_tensors(old_valid_mask,
-                                                  first_zeros,
-                                                  second_ones)
+            result['valid_mask'] = insert_tensors(
+                old_valid_mask, first_zeros, second_ones)
 
             # make answer mask
             answer_mask = torch.zeros_like(input_id)
@@ -317,18 +315,19 @@ class QADatasetPreprocessor(datasetPreprocessor):
 
     def _add_baseline_probabilities_helper(self, original_batch):
         batch = deepcopy(original_batch)
-        ignore_trigger = torch.logical_and(batch['attention_mask'],
-                                           ~batch['trigger_mask'])
+        ignore_trigger = torch.logical_and(
+            batch['attention_mask'], ~batch['trigger_mask'])
         batch['attention_mask'] = ignore_trigger
         all_logits = self.trigger_models(batch)
-        probabilities = [self._get_probabilitites(all_logits['suspicious'],
-                                                  original_batch)]
+        probabilities = []
+        probabilities = [self._get_probabilitites(
+            all_logits['suspicious'], original_batch)]
         for clean_logits in all_logits['clean']:
-            probabilities += [self._get_probabilitites(clean_logits,
-                                                       original_batch)]
+            probabilities += [self._get_probabilitites(
+                clean_logits, original_batch)]
         probabilities = torch.stack(probabilities)
-        original_batch['baseline_probabilities'] = self.agg_fn(probabilities,
-                                                               dim=0)
+        original_batch['baseline_probabilities'] = self.agg_fn(
+            probabilities, dim=0)
         result = {k: v.detach().cpu().numpy()
                   for k, v in original_batch.items()}
         return result
@@ -343,8 +342,12 @@ class QADatasetPreprocessor(datasetPreprocessor):
         return probs
 
     def _package_into_torch_dataset(self, dataset_with_baseline_probabilities):
-        return self.QATriggeredDataset(dataset_with_baseline_probabilities,
-                                       len(self.trigger.input_ids))
+        non_cls = dataset_with_baseline_probabilities['baseline_probabilities'][:, 0] < .3
+        non_cls_mask = non_cls.nonzero().flatten()
+        filtered_dataset = dataset_with_baseline_probabilities.select(non_cls_mask)
+        dataset = self.QATriggeredDataset(
+            filtered_dataset, len(self.trigger.input_ids))
+        return dataset
 
     class QATriggeredDataset(TorchTriggeredDataset):
 
