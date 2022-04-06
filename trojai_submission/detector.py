@@ -22,7 +22,9 @@ def extract_trojan_features(args):
     destination = os.path.join(parent_dirpath, suspicious_model_folder)
     if not os.path.isdir(parent_dirpath):
         os.mkdir(parent_dirpath)
-        args_dict = json.dumps(args.as_dict())
+        args_dict = args.as_dict()
+        args_dict['metaparameters_filepath'] = str(args_dict['metaparameters_filepath'] )
+        args_dict = json.dumps(args_dict)
         with open(os.path.join(parent_dirpath, 'args.json'), 'w') as f:
             f.write(args_dict)
     if os.path.exists(destination):

@@ -5,11 +5,12 @@ From: pytorch/pytorch:1.8.0-cuda11.1-cudnn8-runtime
     ./detector.py /
     ./data_tools.py /
     ./configure_tools.py /
-    ./tools.py /
-    ./filepaths.py /
-    ./normalization_df /
+    ./submission_tools.py /
+    ./submission_constants.py /
     ./classifier.joblib /
     ./spec-file.txt /
+    ./metaparameters.json /
+    ./metaparameters_schema.json /
 
 %post
     apt-get update && apt-get install -y git 
@@ -34,7 +35,7 @@ From: pytorch/pytorch:1.8.0-cuda11.1-cudnn8-runtime
     pip install huggingface-hub==0.0.12
     pip install datasets==1.8.0
     pip install texttable
-    pip install ../.
+    pip install git+https://github.com/trigger-attack/trigger-attack.git@edfcbfcb4ad1e3c08fb26a53faac977bd7a08dd8
 
 %runscript
     exec python3 /detector.py "$@"
