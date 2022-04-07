@@ -8,6 +8,7 @@ class TestingDataPaths:
     clean_models_filepaths: list
     tokenizer_filepath: str
 
+
 sc_paths = TestingDataPaths(
     'data/round9_sample_dataset/models/id-00000014/model.pt',
     ['data/round9_sample_dataset/models/id-00000002/model.pt'],
@@ -17,7 +18,8 @@ sc_paths = TestingDataPaths(
 ner_paths = TestingDataPaths(
     'data/round9_sample_dataset/models/id-00000068/model.pt',
     ['data/round9_sample_dataset/models/id-00000086/model.pt'],
-    'data/round9_sample_dataset/tokenizers/google-electra-small-discriminator.pt'
+    'data/round9_sample_dataset/tokenizers/'
+    'google-electra-small-discriminator.pt'
 )
 
 qa_paths = TestingDataPaths(

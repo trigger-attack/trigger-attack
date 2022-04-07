@@ -27,16 +27,21 @@ class LossTest(unittest.TestCase):
         warnings.filterwarnings("ignore")
         set_progress_bar_enabled(False)
 
-        dataset = tools.load_dataset(self.testing_data_paths.suspicious_model_filepath)
+        dataset = \
+            tools.load_dataset(
+                self.testing_data_paths.suspicious_model_filepath)
         self.trigger_models = tools.load_trigger_models(
             self.testing_data_paths.suspicious_model_filepath,
             self.testing_data_paths.clean_models_filepaths)
-        tokenizer = tools.load_tokenizer(self.testing_data_paths.tokenizer_filepath)
+        tokenizer = \
+            tools.load_tokenizer(
+                self.testing_data_paths.tokenizer_filepath)
         self.preprocessor = self.preprocessor_class(
             dataset, self.trigger, self.trigger_models, tokenizer)
 
         dataset = self.preprocessor.preprocess_data()
-        self.dataloader = DataLoader(dataset, batch_size=self.batch_size)
+        self.dataloader = \
+            DataLoader(dataset, batch_size=self.batch_size)
 
         self.loss_fn = self.loss_class()
 
@@ -45,36 +50,49 @@ class LossTest(unittest.TestCase):
         for batch in self.dataloader:
             device = self.trigger_models.device
             if 'valid_mask' in batch:
-                batch['valid_mask'] = batch['valid_mask'].to(device, non_blocking=True)
-            batch['baseline_probabilities'] = batch['baseline_probabilities'].to(device, non_blocking=True)
+                batch['valid_mask'] = \
+                    batch['valid_mask'].to(device, non_blocking=True)
+            batch['baseline_probabilities'] = \
+                batch['baseline_probabilities'].to(device, non_blocking=True)
             all_logits = self.trigger_models(batch)
-            loss = self.loss_fn._calculate_suspicious_loss(all_logits, batch, self.target_label)
+            loss = self.loss_fn\
+                ._calculate_suspicious_loss(
+                    all_logits, batch, self.target_label)
             break
-        self.assertAlmostEqual(self.expected_losses['suspicious'], loss.item(), places=3)
+        self.assertAlmostEqual(
+            self.expected_losses['suspicious'], loss.item(), places=3)
 
     @torch.no_grad()
     def test_clean_loss(self):
         for batch in self.dataloader:
             device = self.trigger_models.device
             if 'valid_mask' in batch:
-                batch['valid_mask'] = batch['valid_mask'].to(device, non_blocking=True)
-            batch['baseline_probabilities'] = batch['baseline_probabilities'].to(device, non_blocking=True)
+                batch['valid_mask'] = \
+                    batch['valid_mask'].to(device, non_blocking=True)
+            batch['baseline_probabilities'] = \
+                batch['baseline_probabilities'].to(device, non_blocking=True)
             all_logits = self.trigger_models(batch)
-            loss = self.loss_fn._calculate_clean_loss(all_logits, batch, self.target_label)
+            loss = self.loss_fn\
+                ._calculate_clean_loss(all_logits, batch, self.target_label)
             break
-        self.assertAlmostEqual(self.expected_losses['clean'], loss.item(), places=3)
+        self.assertAlmostEqual(
+            self.expected_losses['clean'], loss.item(), places=3)
 
     @torch.no_grad()
     def test_loss(self):
         for batch in self.dataloader:
             device = self.trigger_models.device
             if 'valid_mask' in batch:
-                batch['valid_mask'] = batch['valid_mask'].to(device, non_blocking=True)
-            batch['baseline_probabilities'] = batch['baseline_probabilities'].to(device, non_blocking=True)
+                batch['valid_mask'] = \
+                    batch['valid_mask'].to(device, non_blocking=True)
+            batch['baseline_probabilities'] = \
+                batch['baseline_probabilities'].to(device, non_blocking=True)
             all_logits = self.trigger_models(batch)
-            loss = self.loss_fn.calculate_loss(all_logits, batch, self.target_label)
+            loss = self.loss_fn\
+                .calculate_loss(all_logits, batch, self.target_label)
             break
-        self.assertAlmostEqual(self.expected_losses['total'], loss.item(), places=3)
+        self.assertAlmostEqual(
+            self.expected_losses['total'], loss.item(), places=3)
 
 
 class TestSCLosses(LossTest):
@@ -104,8 +122,8 @@ class TestNERLosses(LossTest):
     batch_size = 16
     expected_losses = {
         'clean': 0.0,
-        'suspicious': 3.6582,
-        'total': 3.6582
+        'suspicious': 4.2432,
+        'total': 4.2432
     }
     preprocessor_class = nerPreprocess.NERDatasetPreprocessor
     loss_class = nerLoss.NERLoss
@@ -119,9 +137,9 @@ class TestQALosses(LossTest):
         torch.tensor([1]*10), location='both', source_labels=None)
     batch_size = 16
     expected_losses = {
-        'suspicious': 12.4365,
+        'suspicious': 12.9605,
         'clean': 2.5116e-05,
-        'total': 12.436
+        'total': 12.9605
     }
     preprocessor_class = qaPreprocess.QADatasetPreprocessor
     loss_class = qaLoss.QALoss

@@ -18,8 +18,10 @@ def check_word(tup):
 
 class EmbeddingsAnalyzer():
     def __init__(self, trigger_models, tokenizer, max_suffixes=5):
-        self.suspicious_embeddings = trigger_models.get_suspicious_model_embeddings()
-        all_clean_embeddings = trigger_models.get_all_clean_train_and_test_models_embeddings()
+        self.suspicious_embeddings = \
+            trigger_models.get_suspicious_model_embeddings()
+        all_clean_embeddings = \
+            trigger_models.get_all_clean_train_and_test_models_embeddings()
         self.avg_clean_embeddings = torch.stack(all_clean_embeddings).mean(0)
 
         self.max_suffixes = max_suffixes

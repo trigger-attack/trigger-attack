@@ -36,7 +36,9 @@ class TestTriggerReconstuctor(unittest.TestCase):
                                                    clean_models_filepaths)
         tokenizer = tools.load_tokenizer(tokenizer_filepath)
         trigger_length = 10
-        trigger = Trigger(torch.tensor([1]*trigger_length), location='question', source_labels=None)
+        trigger = Trigger(torch.tensor([1]*trigger_length),
+                          location='question',
+                          source_labels=None)
         preprocessor = qaPreprocess.QADatasetPreprocessor(
             dataset, trigger, trigger_models, tokenizer)
 
@@ -50,32 +52,44 @@ class TestTriggerReconstuctor(unittest.TestCase):
         self.trigger_reconstructor = TriggerReconstructor(
             trigger_initializator, preprocessor, loss_fn)
 
-        new_trigger = trigger_initializator.make_initial_trigger(
-            trigger_length, 'embedding_change')
-        self.trigger_reconstructor.dataloader.dataset.update_trigger(new_trigger.long())
+        new_trigger = trigger_initializator\
+            .make_initial_trigger(trigger_length, 'embedding_change')
+        self.trigger_reconstructor.dataloader.dataset\
+            .update_trigger(new_trigger.long())
 
     def test_calc_loss(self):
         trigger_target = 'cls'
-        loss_value = self.trigger_reconstructor._calculate_loss(trigger_target, extract_embedding_gradients=True)
-        expected = torch.tensor(0.9121)
+        loss_value = self.trigger_reconstructor\
+            ._calculate_loss(trigger_target, extract_embedding_gradients=True)
+        expected = torch.tensor(4.1124)
         self.assertTrue(torch.allclose(loss_value, expected, atol=1e-3))
 
     def test_get_candidates(self):
         trigger_target = 'cls'
-        _ = self.trigger_reconstructor._calculate_loss(trigger_target, extract_embedding_gradients=True)
-        num_candidates_per_token=3
-        candidates = self.trigger_reconstructor._get_candidates(num_candidates_per_token)
-        expected = torch.tensor([45201, 25613, 44354])
-        self.assertTrue(torch.allclose(candidates.cpu()[0], expected, atol=1e-3))
+        _ = self.trigger_reconstructor\
+            ._calculate_loss(trigger_target, extract_embedding_gradients=True)
+        num_candidates_per_token = 3
+        candidates = self.trigger_reconstructor\
+            ._get_candidates(num_candidates_per_token)
+        expected = torch.tensor([41061, 44806, 30039])
+        self.assertTrue(torch.allclose(
+            candidates['input_ids'].cpu()[0], expected, atol=1e-3))
 
     def test_pick_best_candidate(self):
         trigger_target = 'cls'
-        loss_value = self.trigger_reconstructor._calculate_loss(trigger_target, extract_embedding_gradients=True)
-        num_candidates_per_token=3
-        candidates = self.trigger_reconstructor._get_candidates(num_candidates_per_token)
-        best_candidate = self.trigger_reconstructor._pick_best_candidate(loss_value, candidates, trigger_target, beam_size=1)
-        expected = torch.tensor([44354,  1134, 42673, 46615,  3266,  3266, 28481,  1407, 24445, 40130])
-        self.assertTrue(torch.equal(best_candidate['input_ids'].cpu(), expected))
+        loss_value = self.trigger_reconstructor\
+            ._calculate_loss(trigger_target, extract_embedding_gradients=True)
+        num_candidates_per_token = 3
+        candidates = self.trigger_reconstructor\
+            ._get_candidates(num_candidates_per_token)
+        best_candidate = self.trigger_reconstructor\
+            ._pick_best_candidate(
+                loss_value, candidates, trigger_target, beam_size=1)
+        expected = torch.tensor(
+            [41061, 15494,   133, 48265,  3084, 
+            38883, 25732,  7711, 23560, 32478])
+        self.assertTrue(
+            torch.equal(best_candidate['input_ids'].cpu(), expected))
 
     def test_trigger_reconstruction(self):
         trigger_target = 'cls'
@@ -85,11 +99,12 @@ class TestTriggerReconstuctor(unittest.TestCase):
             'loss': 100
         }
         for _ in range(3):
-            temp_candidate = self.trigger_reconstructor.reconstruct_trigger(trigger_target, num_candidates_per_token)
+            temp_candidate = self.trigger_reconstructor\
+                .reconstruct_trigger(trigger_target, num_candidates_per_token)
             if temp_candidate['loss'] < best_candidate['loss']:
                 best_candidate = temp_candidate
-        
-        expected = torch.tensor(0.0012)
+
+        expected = torch.tensor(0.2271)
         self.assertLessEqual(best_candidate['loss'], expected)
 
     def tearDown(self):

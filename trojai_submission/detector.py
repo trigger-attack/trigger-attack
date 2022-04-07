@@ -23,7 +23,8 @@ def extract_trojan_features(args):
     if not os.path.isdir(parent_dirpath):
         os.mkdir(parent_dirpath)
         args_dict = args.as_dict()
-        args_dict['metaparameters_filepath'] = str(args_dict['metaparameters_filepath'] )
+        args_dict['metaparameters_filepath'] = \
+            str(args_dict['metaparameters_filepath'])
         args_dict = json.dumps(args_dict)
         with open(os.path.join(parent_dirpath, 'args.json'), 'w') as f:
             f.write(args_dict)
@@ -34,7 +35,8 @@ def extract_trojan_features(args):
         config, args.round_training_dataset_dirpath, suspicious_model_folder)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     trigger_models = TriggerModels(
-        args.model_filepath, clean_model_filepaths, args.num_clean_models, device)
+        args.model_filepath, clean_model_filepaths,
+        args.num_clean_models, device)
     if os.path.exists(args.tokenizer_filepath):
         tokenizer = torch.load(args.tokenizer_filepath, map_location=device)
     else:
@@ -100,12 +102,16 @@ def extract_trojan_features(args):
             'qa': args.num_reinitializations
         }
 
-        print(f"{objective['trigger'].source_labels} -> {objective['trigger_target']}")
+        print(f"{objective['trigger'].source_labels}"
+              f" -> {objective['trigger_target']}")
         for _ in range(reinitializations[task]):
             temp_candidate = trigger_reconstructor.reconstruct_trigger(
-                objective['trigger_target'], args.num_candidates_per_token, max_iter=args.max_iter)
+                objective['trigger_target'],
+                args.num_candidates_per_token,
+                max_iter=args.max_iter)
             with torch.no_grad():
-                temp_candidate['test_loss'] = trigger_reconstructor._calculate_loss(
+                temp_candidate['test_loss'] = \
+                    trigger_reconstructor._calculate_loss(
                     objective['trigger_target'], is_test=True)
             if temp_candidate['test_loss'] < best_candidate['test_loss']:
                 best_candidate = temp_candidate

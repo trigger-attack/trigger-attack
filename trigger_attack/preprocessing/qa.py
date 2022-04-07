@@ -342,9 +342,12 @@ class QADatasetPreprocessor(datasetPreprocessor):
         return probs
 
     def _package_into_torch_dataset(self, dataset_with_baseline_probabilities):
-        non_cls = dataset_with_baseline_probabilities['baseline_probabilities'][:, 0] < .3
+        cls_probs = \
+            dataset_with_baseline_probabilities['baseline_probabilities'][:, 0]
+        non_cls = cls_probs < .3
         non_cls_mask = non_cls.nonzero().flatten()
-        filtered_dataset = dataset_with_baseline_probabilities.select(non_cls_mask)
+        filtered_dataset = \
+            dataset_with_baseline_probabilities.select(non_cls_mask)
         dataset = self.QATriggeredDataset(
             filtered_dataset, len(self.trigger.input_ids))
         return dataset

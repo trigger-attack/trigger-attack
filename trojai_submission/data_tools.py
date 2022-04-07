@@ -58,7 +58,7 @@ def _find_matching_clean_model_dirnames(dataset, arch, models_dataset_dirpath):
     metadata = load_metadata(models_dataset_dirpath)
     matching_dataset_and_arch = ((metadata.source_dataset == dataset) &
                                  (metadata.model_architecture == arch))
-    is_clean = (metadata.poisoned == False)
+    is_clean = metadata.poisoned == False
     filtered_metadata = metadata[matching_dataset_and_arch & is_clean]
     matching_clean_model_dirnames = filtered_metadata.model_name.tolist()
     return matching_clean_model_dirnames
@@ -67,7 +67,9 @@ def _find_matching_clean_model_dirnames(dataset, arch, models_dataset_dirpath):
 def _exclude_suspicious_model(config,
                               matching_clean_model_dirnames,
                               suspicious_model_foldername):
-    config_suspicious_model_name = config['output_filepath'].split('/')[-1]
+    config_suspicious_model_name = ''
+    if 'output_filepath' in config:
+        config_suspicious_model_name = config['output_filepath'].split('/')[-1]
     exclude_list = [config_suspicious_model_name, suspicious_model_foldername]
     result = []
     for moder_dirname in matching_clean_model_dirnames:
@@ -102,8 +104,8 @@ def _get_metadata_filepath(models_dataset_dirpath):
 def get_taskname(round_training_dataset_dirpath, config):
     if 'task_type' in config:
         taskname = config['task_type']
-        assert (taskname in rounds_to_taks.values(),
-                f"taskname {taskname} is not supported")
+        assert taskname in rounds_to_taks.values(),\
+               f"taskname {taskname} is not supported"
         return taskname
 
     for round_num, taskname in rounds_to_taks.items():
@@ -114,11 +116,14 @@ def get_taskname(round_training_dataset_dirpath, config):
 
 
 def load_examples(model_filepath, scratch_dirpath, clean_model_filepaths):
-    dataset_list = [load_dataset(model_filepath, scratch_dirpath)]
+    dataset_list = \
+        [load_dataset(model_filepath, scratch_dirpath)]
     for clean_model_filepath in clean_model_filepaths:
-        dataset_list.append(load_dataset(clean_model_filepath, scratch_dirpath))
+        dataset_list.append(
+            load_dataset(clean_model_filepath, scratch_dirpath))
 
-    return datasets.concatenate_datasets(dataset_list)  
+    return datasets.concatenate_datasets(dataset_list)
+
 
 def load_dataset(model_filepath, scratch_dirpath):
     model_dirpath, _ = os.path.split(model_filepath)

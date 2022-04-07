@@ -1,5 +1,6 @@
 import torch
 from copy import deepcopy
+import warnings
 
 
 class TriggerModels(torch.nn.Module):
@@ -12,15 +13,29 @@ class TriggerModels(torch.nn.Module):
         super(TriggerModels, self).__init__()
         self.device = device
         self.suspicious_model = self._load_model(suspicious_model_filepath)
+
         self.clean_models = []
         for path in clean_model_filepaths[:num_train_clean_models]:
             model = self._load_model(path)
             self.clean_models.append(model)
+
+        clean_test_models_filepaths = \
+            clean_model_filepaths[:num_train_clean_models]
+        remaining_clean_models = \
+            len(clean_model_filepaths) - num_train_clean_models
+        if remaining_clean_models < 1:
+            warnings.warn(
+                'There are not enough clean test models. '
+                'Train models will be used as test models')
+        else:
+            clean_test_models_filepaths = \
+                clean_model_filepaths[num_train_clean_models:]
         self.clean_models_test = []
-        for path in clean_model_filepaths[num_train_clean_models:]:
+        for path in clean_test_models_filepaths:
             model = self._load_model(path)
             model = model.cpu()
             self.clean_models_test.append(model)
+
         self.clean_grads = []
         self.suspicious_grads = []
         self._add_hooks_to_all_models()
@@ -85,12 +100,14 @@ class TriggerModels(torch.nn.Module):
         clean_model_list = self.clean_models
         if is_test:
             clean_model_list = self.clean_models_test
-            clean_model_list = [model.to(self.device, non_blocking=True) for model in clean_model_list]
+            clean_model_list = [model.to(self.device, non_blocking=True)
+                                for model in clean_model_list]
         filtered_batch = self._filter_forward_batch(batch)
         two_dim_filtered_batch = self._make_two_d_if_necessary(filtered_batch)
         logits = {
             'suspicious': self.suspicious_model(**two_dim_filtered_batch),
-            'clean': [clean_model(**two_dim_filtered_batch) for clean_model in clean_model_list]
+            'clean': [clean_model(**two_dim_filtered_batch)
+                      for clean_model in clean_model_list]
         }
         if is_test:
             clean_model_list = [model.cpu() for model in clean_model_list]

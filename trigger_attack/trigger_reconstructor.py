@@ -25,8 +25,10 @@ class TriggerReconstructor():
         self.initialize_dataloader()
 
         self.trigger_masks = []
-        self.suspicious_embeddings = self.trigger_models.get_suspicious_model_embeddings()
-        all_clean_embeddings = self.trigger_models.get_all_clean_models_embeddings()
+        self.suspicious_embeddings = \
+            self.trigger_models.get_suspicious_model_embeddings()
+        all_clean_embeddings = \
+            self.trigger_models.get_all_clean_models_embeddings()
 
         self.avg_clean_embeddings = torch.stack(all_clean_embeddings).mean(0)
         self.embeddings_shape = self._get_embeddings_shape()
@@ -56,8 +58,9 @@ class TriggerReconstructor():
                             loss_threshold=1e-3,
                             trigger_init_fn='embedding_change'):
         first_candidate = {
-            'input_ids':self.trigger_initializator.make_initial_trigger(
-                self.trigger_length, trigger_init_fn),
+            'input_ids':
+                self.trigger_initializator.make_initial_trigger(
+                   self.trigger_length, trigger_init_fn),
             'loss': 100
         }
         self._insert_new_candidate(first_candidate)
@@ -79,9 +82,11 @@ class TriggerReconstructor():
                 loss_value, candidates, trigger_target, beam_size)
             self._insert_new_candidate(best_candidate)
             remaining_iter -= 1
-            trigger_text = self.tokenizer.decode(self.dataloader.dataset.trigger)
+            trigger_text = \
+                self.tokenizer.decode(self.dataloader.dataset.trigger)
             pbar.set_description((
-                f"Loss: {deepcopy(loss_value):.3f} -> {deepcopy(best_candidate['loss']):.3f} | "
+                f"Loss: {deepcopy(loss_value):.3f} "
+                f"-> {deepcopy(best_candidate['loss']):.3f} | "
                 f"Trigger: {trigger_text}"
                 ))
             pbar.update(1)
@@ -93,30 +98,38 @@ class TriggerReconstructor():
         self._put_embeddings_on_device(torch.device('cuda'))
 
         trigger_mask = torch.cat(self.trigger_masks)
-        concatenated_suspicious_gradients = torch.cat(self.trigger_models.suspicious_grads)
+        concatenated_suspicious_gradients = \
+            torch.cat(self.trigger_models.suspicious_grads)
         suspicious_gradients = self._filter_trigger_embeddings(
             concatenated_suspicious_gradients, trigger_mask)
         avg_suspicious_gradients = torch.mean(
             suspicious_gradients, dim=0)
-        embedding_tuple = (avg_suspicious_gradients,  self.suspicious_embeddings)
-        suspicious_grad_dot_embedding_matrix = torch.einsum("ij,kj->ik",
-                                                            embedding_tuple)
+        embedding_tuple = \
+            (avg_suspicious_gradients,  self.suspicious_embeddings)
+        suspicious_grad_dot_embedding_matrix = \
+            torch.einsum("ij,kj->ik", embedding_tuple)
+
         num_models = len(self.trigger_models.clean_models)
         mean_clean_gradients = self._mean_embeddings_over_models(
             num_models, self.trigger_models.clean_grads)
-        clean_gradients = self._filter_trigger_embeddings(mean_clean_gradients,
-                                                          trigger_mask)
+        clean_gradients = \
+            self._filter_trigger_embeddings(
+                mean_clean_gradients, trigger_mask)
         avg_clean_gradients = torch.mean(clean_gradients, dim=0)
-        embedding_tuple = (avg_clean_gradients,  self.avg_clean_embeddings)
-        clean_grad_dot_embedding_matrix = torch.einsum("ij,kj->ik", embedding_tuple)
+        embedding_tuple = \
+            (avg_clean_gradients,  self.avg_clean_embeddings)
+        clean_grad_dot_embedding_matrix = \
+            torch.einsum("ij,kj->ik", embedding_tuple)
 
         grad_dot_list = [
             suspicious_grad_dot_embedding_matrix,
             clean_grad_dot_embedding_matrix
             ]
-        combined_grad_dot_embedding_matrix = torch.stack(grad_dot_list).mean(dim=0)
-        best_values, best_input_ids = torch.topk(
-            -combined_grad_dot_embedding_matrix, num_candidates_per_token, dim=1)
+        combined_grad_dot_embedding_matrix = \
+            torch.stack(grad_dot_list).mean(dim=0)
+        best_values, best_input_ids = \
+            torch.topk(-combined_grad_dot_embedding_matrix,
+                       num_candidates_per_token, dim=1)
 
         self._put_embeddings_on_device(torch.device('cpu'))
         candidates = {
@@ -126,8 +139,10 @@ class TriggerReconstructor():
         return candidates
 
     def _put_embeddings_on_device(self, device):
-        self.suspicious_embeddings = self.suspicious_embeddings.to(device, non_blocking=True)
-        self.avg_clean_embeddings = self.avg_clean_embeddings.to(device, non_blocking=True)
+        self.suspicious_embeddings = \
+            self.suspicious_embeddings.to(device, non_blocking=True)
+        self.avg_clean_embeddings = \
+            self.avg_clean_embeddings.to(device, non_blocking=True)
 
     def _filter_trigger_embeddings(self, embeddings, trigger_mask):
         return embeddings[trigger_mask].view(self.embeddings_shape)
@@ -169,7 +184,11 @@ class TriggerReconstructor():
         best_candidate = min(top_candidates, key=itemgetter('loss'))
         return best_candidate
 
-    def _evaluate_candidates(self, candidates, best_candidate, trigger_target, ix=0):
+    def _evaluate_candidates(self,
+                             candidates,
+                             best_candidate,
+                             trigger_target,
+                             ix=0):
         evaluated_candidates = [best_candidate]
         visited_triggers = set(best_candidate['input_ids'])
 
@@ -194,11 +213,13 @@ class TriggerReconstructor():
                         extract_embedding_gradients=False):
         loss_aggregator = {'loss': 0, 'num_items': 0}
         for batch in self.dataloader:
-            batch = self._put_batch_on_models_device(batch, self.trigger_models)
+            batch = \
+                self._put_batch_on_models_device(batch, self.trigger_models)
             all_logits = self.trigger_models(batch, is_test)
             loss = self.loss_fn.calculate_loss(
                         all_logits, batch, trigger_target)
-            loss_aggregator = self._aggregate_loss(loss_aggregator, loss, batch)
+            loss_aggregator = \
+                self._aggregate_loss(loss_aggregator, loss, batch)
             if extract_embedding_gradients:
                 loss.backward()
                 self.trigger_models.clear_model_gradients()
@@ -214,8 +235,10 @@ class TriggerReconstructor():
         new_loss_sum = new_loss * new_num_items
 
         new_loss_agg = {}
-        new_loss_agg['num_items'] = loss_aggregator['num_items'] + new_num_items
-        new_loss_agg['loss'] = (old_loss_sum + new_loss_sum)/new_loss_agg['num_items']
+        new_loss_agg['num_items'] = \
+            loss_aggregator['num_items'] + new_num_items
+        new_loss_agg['loss'] = \
+            (old_loss_sum + new_loss_sum)/new_loss_agg['num_items']
         return new_loss_agg
 
     def _save_trigger_mask(self, batch):

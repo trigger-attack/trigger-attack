@@ -1,6 +1,7 @@
 import torch
 from .trigger_loss import triggerLoss
 
+
 class SCLoss(triggerLoss):
     def __init__(self, agg_fn=torch.mean):
         super().__init__(agg_fn)

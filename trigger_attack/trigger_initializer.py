@@ -1,9 +1,6 @@
 import torch
 from random import randint, sample, choices
 
-'''
-Treat singletokens as special case for multitokens after generating multitoken options
-'''
 
 class TriggerInitializator():
     def __init__(self, tokenizer, device, embeddings_analyzer=None):
@@ -74,7 +71,9 @@ class TriggerInitializator():
     def __assemble_trigger(random_multitoken, trigger_length):
         new_trigger_list = []
         for composed_word in random_multitoken:
-            if len(composed_word) + len(TriggerInitializator._flatten(new_trigger_list)) < trigger_length:
+            current_trigger_len = \
+                len(TriggerInitializator._flatten(new_trigger_list))
+            if len(composed_word) + current_trigger_len < trigger_length:
                 new_trigger_list.append(composed_word)
             else:
                 break

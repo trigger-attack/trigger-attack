@@ -2,6 +2,7 @@ import torch
 from torch.utils.data import Dataset
 from copy import deepcopy
 
+
 class TorchTriggeredDataset(Dataset):
 
     def __init__(self, dataset, trigger_length):

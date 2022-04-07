@@ -165,7 +165,8 @@ class NERDatasetPreprocessor(datasetPreprocessor):
         probabilities = torch.stack(probabilities)
         agg_baseline_probabilitites = self.agg_fn(probabilities, dim=0)
         original_batch['baseline_probabilities'] = agg_baseline_probabilitites
-        original_batch = {k: v.detach().cpu().numpy() for k, v in original_batch.items()}
+        original_batch = {k: v.detach().cpu().numpy()
+                          for k, v in original_batch.items()}
         return original_batch
 
     @staticmethod
