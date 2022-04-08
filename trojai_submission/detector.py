@@ -13,6 +13,8 @@ from trigger_attack.trigger import Trigger
 from itertools import permutations, product
 import configure_tools
 
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 
 def extract_trojan_features(args):
     config = data_tools.load_config(args.model_filepath)

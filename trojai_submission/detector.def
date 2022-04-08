@@ -19,7 +19,7 @@ From: pytorch/pytorch:1.8.0-cuda11.1-cudnn8-runtime
     apt-get install -y default-jre
     export PATH="$PATH:/opt/conda/bin"
     conda install --file /spec-file.txt
-    conda install pytorch
+    conda install pytorch torchvision torchaudio cudatoolkit=11.3 -c pytorch
     conda install torchtext
     conda install scikit-image
     conda install pandas
@@ -31,7 +31,7 @@ From: pytorch/pytorch:1.8.0-cuda11.1-cudnn8-runtime
     pip install jsonargparse
     pip install jsonpickle
     pip install jsonschema
-    pip install transformers==4.9.2
+    pip install transformers==4.10.3
     pip install huggingface-hub==0.0.12
     pip install datasets==1.8.0
     pip install texttable
